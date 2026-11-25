@@ -5,6 +5,11 @@ Trang web đơn giản để Ban quản trị chung cư The Vista An Phú quản
 - **Quỹ bảo trì** và **quỹ vận hành**: ghi khoản thu, khoản chi, xem số dư và biểu đồ 6 tháng.
 - **Tài sản**: thiết bị, máy móc, xe, kèm tình trạng và chu kỳ bảo trì.
 - **Bảo trì**: nhật ký bảo trì, lịch tới hạn, tự ghi chi phí vào quỹ.
+- **Chứng từ**: đính kèm ảnh, PDF hóa đơn vào giao dịch, lần bảo trì, tài sản (lưu ngoài thư mục web).
+- **Báo cáo** tháng, quý, năm, in hoặc lưu PDF.
+- **Nhắc việc**: bảo trì, kiểm định, hết bảo hành; gửi email hằng ngày khi có người của Ban quản trị mở trang.
+- **Tài khoản riêng** (Trưởng ban, Kế toán), nhật ký thay đổi, hủy khoản thay cho xóa, khoản chi lớn cần Trưởng ban khác duyệt.
+- **Sao lưu, khôi phục** dữ liệu (.json) và tải chứng từ (.zip).
 - **Góp ý**: nút “Góp ý” trên đầu trang cho mọi người gửi ý kiến.
 
 Chạy tại: https://quanly.vistaanphu.com
@@ -23,7 +28,8 @@ Một trang `index.html` (HTML, CSS, JavaScript thuần, không cần build) và
    - `editor_hash`: mật khẩu Ban quản trị và kế toán (xem và sửa).
    - `viewer_hash`: mật khẩu cư dân (chỉ xem). Để trống nếu không cho cư dân xem.
 3. Đặt `db` trỏ tới một thư mục **ngoài** thư mục web (trên Hostinger, mặc định nằm cạnh `public_html`).
-4. Tải các tệp `index.html`, `api.php`, `.htaccess`, `config.php` lên thư mục web.
+4. Vào trang, tạo tài khoản riêng ở mục Quản trị, đặt hạn mức duyệt chi và email nhận nhắc việc ở mục Cài đặt.
+5. Tải các tệp `index.html`, `api.php`, `.htaccess`, `config.php` lên thư mục web.
 
 Chạy thử trên máy: `php -S 127.0.0.1:8080` rồi mở http://127.0.0.1:8080.
 

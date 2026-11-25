@@ -6,6 +6,8 @@ Trang web đơn giản để Ban quản trị chung cư The Vista An Phú quản
 - **Tài sản**: thiết bị, máy móc, xe, kèm tình trạng và chu kỳ bảo trì.
 - **Bảo trì**: nhật ký bảo trì, lịch tới hạn, tự ghi chi phí vào quỹ.
 - **Chứng từ**: đính kèm ảnh, PDF hóa đơn vào giao dịch, lần bảo trì, tài sản (lưu ngoài thư mục web).
+- **Thông báo và kế hoạch** của Ban quản lý, Ban quản trị (ngày, tháng, năm), cư dân xem được.
+- **Hồ sơ tài sản**: nguồn gốc, lịch sử sử dụng và bảo trì, chứng từ, kế hoạch, bình luận của cư dân.
 - **Báo cáo** tháng, quý, năm, in hoặc lưu PDF.
 - **Nhắc việc**: bảo trì, kiểm định, hết bảo hành; gửi email hằng ngày khi có người của Ban quản trị mở trang.
 - **Tài khoản riêng** (Trưởng ban, Kế toán), nhật ký thay đổi, hủy khoản thay cho xóa, khoản chi lớn cần Trưởng ban khác duyệt.

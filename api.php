@@ -41,6 +41,7 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS auth (role TEXT PRIMARY KEY, hash TEXT NO
 $pdo->exec('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL, hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, col TEXT, doc TEXT, summary TEXT, before TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, ref_col TEXT NOT NULL, ref_id TEXT NOT NULL, ts INTEGER NOT NULL, actor TEXT)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, uid TEXT, ts INTEGER NOT NULL)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
 
 $a = (string)($_GET['a'] ?? '');
@@ -48,7 +49,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 $role = $_SESSION['role'] ?? null;
 $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
 $RANK = ['viewer' => 1, 'editor' => 2, 'admin' => 3];
-$COLS = ['txns', 'assets', 'maints', 'settings'];
+$COLS = ['txns', 'assets', 'maints', 'notices', 'settings'];
 $ID_RE = '/^[A-Za-z0-9_.:@+~-]{1,100}$/';
 
 /* ---------- tiện ích ---------- */
@@ -99,6 +100,7 @@ function summ(string $col, array $d): string {
         case 'txns': return (($d['type'] ?? '') === 'in' ? 'Thu ' : 'Chi ') . vnd($d['amount'] ?? 0) . ' · ' . ($d['category'] ?? '') . ' (' . fundName((string)($d['fund'] ?? '')) . ')';
         case 'assets': return trim(($d['code'] ?? '') . ' ' . ($d['name'] ?? ''));
         case 'maints': return ($d['kind'] ?? 'Bảo trì') . ': ' . ($d['title'] ?? '') . ' (' . ($d['date'] ?? '') . ')';
+        case 'notices': return ($d['type'] ?? 'Thông báo') . ': ' . ($d['title'] ?? '');
         case 'settings': return 'Cài đặt chung';
     }
     return '';
@@ -246,13 +248,14 @@ switch ($a) {
 
     case 'all': {
         need($role, 1);
-        $res = ['txns' => [], 'assets' => [], 'maints' => [], 'settings' => new stdClass(), 'files' => [], 'meta' => new stdClass()];
+        $res = ['txns' => [], 'assets' => [], 'maints' => [], 'notices' => [], 'comments' => [], 'settings' => new stdClass(), 'files' => [], 'meta' => new stdClass()];
         foreach ($pdo->query('SELECT col, id, data FROM docs') as $r) {
             $d = json_decode($r['data'], true);
             if (!is_array($d)) continue;
             if ($r['col'] === 'settings') { if ($r['id'] === 'main') $res['settings'] = $d; continue; }
             if (isset($res[$r['col']])) { $d['id'] = $r['id']; $res[$r['col']][] = $d; }
         }
+        $res['comments'] = $pdo->query('SELECT id, asset_id AS assetId, name, text, uid, ts FROM comments ORDER BY id DESC LIMIT 2000')->fetchAll(PDO::FETCH_ASSOC);
         $res['files'] = $pdo->query('SELECT id, name, mime, size, ref_col AS col, ref_id AS ref, ts FROM files ORDER BY ts')->fetchAll(PDO::FETCH_ASSOC);
         $res['meta'] = ['lastExport' => metaGet($pdo, 'last_export'), 'legacyOff' => metaGet($pdo, 'legacy_off') === '1'];
         if ($RANK[$role] >= 2) { try { maybeRemind($pdo); } catch (Throwable $e) {} }
@@ -296,7 +299,13 @@ switch ($a) {
             }
         } elseif ($col === 'maints') {
             if (trim((string)($data['assetId'] ?? '')) === '') out(400, ['error' => 'bad_request']);
-            if (!in_array($data['kind'] ?? 'Bảo trì', ['Bảo trì', 'Sửa chữa', 'Kiểm định'], true)) $data['kind'] = 'Bảo trì';
+            if (!in_array($data['kind'] ?? 'Bảo trì', ['Bảo trì', 'Sửa chữa', 'Kiểm định', 'Sử dụng', 'Đề xuất'], true)) $data['kind'] = 'Bảo trì';
+        } elseif ($col === 'notices') {
+            if (trim((string)($data['title'] ?? '')) === '') out(400, ['error' => 'bad_request']);
+            if (!in_array($data['type'] ?? '', ['Thông báo', 'Kế hoạch ngày', 'Kế hoạch tháng', 'Kế hoạch năm'], true)) $data['type'] = 'Thông báo';
+            if (!in_array($data['status'] ?? '', ['Dự kiến', 'Đang thực hiện', 'Hoàn thành', ''], true)) $data['status'] = '';
+            $data['title'] = mb_substr((string)$data['title'], 0, 160); $data['body'] = mb_substr((string)($data['body'] ?? ''), 0, 4000);
+            $who = actor(); $data['byName'] = $old['byName'] ?? $who['name'];
         } elseif ($col === 'assets') {
             if (trim((string)($data['name'] ?? '')) === '') out(400, ['error' => 'bad_request']);
         }
@@ -312,7 +321,7 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         $col = (string)($body['col'] ?? ''); $id = (string)($body['id'] ?? '');
         if (!in_array($col, $COLS, true) || !preg_match($ID_RE, $id)) out(400, ['error' => 'bad_request']);
-        need($role, in_array($col, ['assets', 'maints'], true) ? 2 : 3);
+        need($role, in_array($col, ['assets', 'maints', 'notices'], true) ? 2 : 3);
         $old = getDoc($pdo, $col, $id);
         $pdo->prepare('DELETE FROM docs WHERE col = ? AND id = ?')->execute([$col, $id]);
         if ($old) audit($pdo, 'xóa', $col, $id, summ($col, $old), $old);
@@ -439,6 +448,7 @@ switch ($a) {
             'docs' => $docs,
             'files' => $pdo->query('SELECT id, name, mime, size, ref_col, ref_id, ts FROM files')->fetchAll(PDO::FETCH_ASSOC),
             'feedback' => $pdo->query('SELECT kind, message, name, contact, created FROM feedback')->fetchAll(PDO::FETCH_ASSOC),
+            'comments' => $pdo->query('SELECT asset_id, name, text, ts FROM comments')->fetchAll(PDO::FETCH_ASSOC),
             'users' => $pdo->query('SELECT username, name, role, active FROM users')->fetchAll(PDO::FETCH_ASSOC),
         ];
         metaSet($pdo, 'last_export', (string)time());
@@ -481,7 +491,7 @@ switch ($a) {
             $clean[] = $d;
         }
         $pdo->beginTransaction();
-        $pdo->exec("DELETE FROM docs WHERE col IN ('txns','assets','maints','settings')");
+        $pdo->exec("DELETE FROM docs WHERE col IN ('txns','assets','maints','notices','settings')");
         foreach ($clean as $d) setDoc($pdo, $d['col'], (string)$d['id'], $d['data']);
         $pdo->commit();
         audit($pdo, 'khôi phục từ bản sao lưu', '', '', count($clean) . ' dòng dữ liệu');
@@ -501,6 +511,31 @@ switch ($a) {
             sendMail(emails(settingsDoc($pdo)), '[The Vista An Phú] Góp ý mới: ' . $kind, "Loại: $kind\r\nTừ: " . (str($body, 'name', 100) ?: '(ẩn danh)') . ' ' . str($body, 'contact', 120) . "\r\n\r\n$msg\r\n\r\nXem tại tab \"Góp ý nhận được\" trên trang quản lý.");
         } catch (Throwable $e) {}
         try { githubIssue($cfg, $kind, $msg); } catch (Throwable $e) {}
+        out(200, ['ok' => true]);
+    }
+
+    case 'comment_add': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $aid = (string)($body['assetId'] ?? '');
+        if (!preg_match($ID_RE, $aid) || !getDoc($pdo, 'assets', $aid)) out(400, ['error' => 'bad_request']);
+        $txt = str($body, 'text', 1000);
+        if (mb_strlen($txt) < 2) out(400, ['error' => 'empty']);
+        $uidc = $_SESSION['uid'] ?? null;
+        $nm = $_SESSION['name'] ?? str($body, 'name', 60);
+        if ($nm === '') $nm = 'Cư dân';
+        if (hits($pdo, 'comment', $ip, 3600) >= 20) out(429, ['error' => 'too_many']);
+        $pdo->prepare('INSERT INTO comments (asset_id, name, text, uid, ts) VALUES (?,?,?,?,?)')->execute([$aid, $nm, $txt, $uidc, time()]);
+        addHit($pdo, 'comment', $ip);
+        $row = $pdo->query('SELECT id, asset_id AS assetId, name, text, uid, ts FROM comments WHERE id = ' . (int)$pdo->lastInsertId())->fetch(PDO::FETCH_ASSOC);
+        out(200, ['ok' => true, 'comment' => $row]);
+    }
+
+    case 'comment_del': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 2);
+        $pdo->prepare('DELETE FROM comments WHERE id = ?')->execute([(int)($body['id'] ?? 0)]);
+        audit($pdo, 'xóa bình luận', 'comments', (string)(int)($body['id'] ?? 0));
         out(200, ['ok' => true]);
     }
 

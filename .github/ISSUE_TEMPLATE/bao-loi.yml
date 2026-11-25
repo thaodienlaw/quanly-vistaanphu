@@ -1,0 +1,19 @@
+name: Báo lỗi
+description: Trang chạy sai hoặc hiển thị sai
+labels: ["lỗi"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Điều gì đã xảy ra?
+      description: Bạn bấm gì, thấy gì, đáng lẽ phải thấy gì.
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Thiết bị và trình duyệt
+      placeholder: "iPhone, Safari / Windows, Chrome"
+  - type: markdown
+    attributes:
+      value: Vui lòng không đăng mật khẩu, số liệu thật của cư dân hay số tài khoản ngân hàng.

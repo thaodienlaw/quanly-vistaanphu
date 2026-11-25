@@ -1,0 +1,18 @@
+name: Góp ý tính năng
+description: Đề xuất tính năng hoặc cách làm tiện hơn
+labels: ["góp ý"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: Bạn cần làm việc gì mà trang chưa làm được?
+      description: Mô tả tình huống thực tế, ví dụ "kế toán cần xuất báo cáo theo quý".
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Bạn mong trang hoạt động thế nào?
+  - type: markdown
+    attributes:
+      value: Vui lòng không đăng mật khẩu, số liệu thật của cư dân hay số tài khoản ngân hàng.

@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quản lý The Vista An Phú</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* Layout: thanh tiêu đề + 4 tab; mỗi tab là một màn hình thao tác, phần tóm tắt luôn nằm trên phần chi tiết. */
+:root{
+  --bg:#f3f5f3; --surface:#ffffff; --ink:#18232b; --muted:#5a6870; --line:#dbe0dd;
+  --accent:#0e6b5c; --accent-ink:#ffffff; --accent-soft:#dcefe9;
+  --in:#0e6b5c; --out:#b9531f;
+  --good:#1b7a43; --good-soft:#dff2e6; --warn:#8f5700; --warn-soft:#fbefd2; --bad:#b3261e; --bad-soft:#fbe3e0;
+  --font:"Be Vietnam Pro",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#12181c; --surface:#1a2227; --ink:#e6ece9; --muted:#9aa9a3; --line:#2c383e;
+    --accent:#4cc3a9; --accent-ink:#08211b; --accent-soft:#17352f;
+    --in:#4cc3a9; --out:#f0916a;
+    --good:#6fd39a; --good-soft:#173324; --warn:#e8b552; --warn-soft:#382c12; --bad:#ff8f86; --bad-soft:#3c2020;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#12181c; --surface:#1a2227; --ink:#e6ece9; --muted:#9aa9a3; --line:#2c383e;
+  --accent:#4cc3a9; --accent-ink:#08211b; --accent-soft:#17352f;
+  --in:#4cc3a9; --out:#f0916a;
+  --good:#6fd39a; --good-soft:#173324; --warn:#e8b552; --warn-soft:#382c12; --bad:#ff8f86; --bad-soft:#3c2020;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font);font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%}
+h1,h2,h3{margin:0;text-wrap:balance;line-height:1.25}
+h2{font-size:18px;font-weight:600}
+h3{font-size:15px;font-weight:600}
+button,input,select,textarea{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:1100px;margin:0 auto;padding:0 16px}
+header.top{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.top-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 8px;flex-wrap:wrap}
+.brand{font-size:19px;font-weight:700}
+.brand small{display:block;font-size:12.5px;font-weight:400;color:var(--muted)}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;padding-bottom:0}
+nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:9px 14px;cursor:pointer;color:var(--muted);font-weight:500;white-space:nowrap}
+nav.tabs button[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+nav.tabs button:hover{color:var(--ink)}
+main{padding:20px 0 56px;display:flex;flex-direction:column;gap:20px}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.07)}
+.btn.out{border-color:var(--out);color:var(--out)}
+.btn.small{padding:4px 10px;font-size:13px}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.ghost{border-color:transparent;background:none;color:var(--muted)}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+.head-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.fund{display:flex;flex-direction:column;gap:8px}
+.fund .label{color:var(--muted);font-size:13.5px;font-weight:500}
+.fund .bal{font-size:30px;font-weight:700;letter-spacing:-.01em}
+.fund .sub{display:flex;gap:16px;flex-wrap:wrap;font-size:13.5px;color:var(--muted)}
+.in{color:var(--in)} .outc{color:var(--out)}
+.pill{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12.5px;font-weight:600;white-space:nowrap}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.mute{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12.5px;font-weight:600;color:var(--muted);background:var(--bg);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+td .meta{display:block;font-size:12.5px;color:var(--muted)}
+.filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
+.filters label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted);font-weight:500}
+input,select,textarea{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px;min-width:0}
+textarea{resize:vertical;min-height:64px}
+.summary{display:flex;gap:20px;flex-wrap:wrap;font-size:14px}
+.summary b{font-weight:600}
+.list{display:flex;flex-direction:column}
+.list .item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid var(--line)}
+.list .item:last-child{border-bottom:0}
+.list .item .t{min-width:0}
+.list .item .t span{display:block;font-size:12.5px;color:var(--muted)}
+.chart{display:flex;align-items:flex-end;gap:14px;height:170px;padding-top:8px;overflow-x:auto}
+.chart .m{flex:1;min-width:64px;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end}
+.chart .bars{display:flex;align-items:flex-end;gap:4px;height:130px;width:100%;justify-content:center;border-bottom:1px solid var(--line)}
+.chart .bar{width:44%;max-width:30px;border-radius:4px 4px 0 0;min-height:2px;position:relative}
+.chart .bar.i{background:var(--in)} .chart .bar.o{background:var(--out)}
+.chart .bar span{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);font-size:11px;color:var(--muted);white-space:nowrap;padding-bottom:2px}
+.chart .lab{font-size:12.5px;color:var(--muted)}
+.legend{display:flex;gap:14px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+.empty{text-align:center;color:var(--muted);padding:28px 16px}
+.banner{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:10px 14px;font-size:14px}
+.banner.info{background:var(--accent-soft);color:var(--accent)}
+.overlay{position:fixed;inset:0;background:rgba(10,16,20,.55);display:flex;align-items:flex-start;justify-content:center;padding:24px 16px;overflow-y:auto;z-index:20}
+.modal{background:var(--surface);border-radius:14px;border:1px solid var(--line);width:100%;max-width:560px;padding:20px;display:flex;flex-direction:column;gap:14px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.fields .full{grid-column:1/-1}
+.fields label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:500;color:var(--muted)}
+.fields label input,.fields label select,.fields label textarea{color:var(--ink);font-weight:400;font-size:15px}
+.check{flex-direction:row!important;align-items:center;gap:8px!important}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px}
+#toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;max-width:calc(100% - 32px)}
+#toast[hidden]{display:none}
+body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],body.ro [data-act="seed"],body.ro [data-act="clear-sample"],body.ro #btnSettings{display:none!important}
+.login{max-width:380px;margin:40px auto;display:flex;flex-direction:column;gap:12px}
+.login label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:500;color:var(--muted)}
+.hp{position:absolute;left:-9999px;height:0;overflow:hidden}
+.fb p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.foot{font-size:13px;color:var(--muted);text-align:center;padding:8px 16px 28px}
+.foot a{color:var(--accent)}
+@media (max-width:520px){.fields{grid-template-columns:1fr}.fund .bal{font-size:26px}}
+@media (prefers-reduced-motion:no-preference){.btn{transition:border-color .15s,filter .15s}}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="top-row">
+      <div class="brand"><span id="orgName">The Vista An Phú</span><small>Quản lý quỹ bảo trì, quỹ vận hành và tài sản chung cư</small></div>
+      <div class="actions"><button class="btn" data-act="feedback" id="btnFeedback">Góp ý</button><button class="btn" data-act="settings" id="btnSettings">Số dư đầu kỳ</button><button class="btn ghost" data-act="logout" id="btnLogout" hidden>Đăng xuất</button></div>
+    </div>
+    <nav class="tabs" aria-label="Chuyên mục">
+      <button data-tab="tong-quan">Tổng quan</button>
+      <button data-tab="thu-chi">Thu chi</button>
+      <button data-tab="tai-san">Tài sản</button>
+      <button data-tab="bao-tri">Bảo trì</button>
+      <button data-tab="gop-y" id="tabGopY" hidden>Góp ý nhận được</button>
+    </nav>
+  </div>
+</header>
+<div class="wrap"><main id="view" aria-live="polite"></main></div>
+<footer class="foot">The Vista An Phú · Mã nguồn mở, mọi người cùng góp ý trên <a href="https://github.com/thaodienlaw/quanly-vistaanphu" target="_blank" rel="noopener">GitHub</a></footer>
+<div id="modal"></div>
+<div id="toast" hidden></div>
+
+<script>
+"use strict";
+/* ---------- tiện ích ---------- */
+const FUNDS={maint:"Quỹ bảo trì",ops:"Quỹ vận hành"};
+const CATS={
+  in:["Phí bảo trì (2%)","Phí quản lý vận hành","Phí gửi xe","Thu từ dịch vụ khác","Lãi tiền gửi","Thu khác"],
+  out:["Bảo trì, sửa chữa","Mua sắm thiết bị","Điện, nước","Lương, nhân sự","Vệ sinh, môi trường","Bảo vệ, an ninh","Bảo hiểm, kiểm định","Chi khác"]
+};
+const KINDS=["Thiết bị","Máy móc","Xe","Khác"];
+const STATUSES=["Tốt","Cần theo dõi","Hỏng","Ngưng sử dụng"];
+const TABS=["tong-quan","thu-chi","tai-san","bao-tri","gop-y"];
+const REPO="https://github.com/thaodienlaw/quanly-vistaanphu";
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nf=new Intl.NumberFormat("vi-VN");
+const money=n=>nf.format(Math.round(n||0))+" ₫";
+const short=n=>{const v=n/1e6;return (Math.abs(v)>=100?Math.round(v):Math.round(v*10)/10).toString().replace(".",",")+" tr"};
+const pad=n=>String(n).padStart(2,"0");
+const ymd=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const today=()=>ymd(new Date());
+const vdate=s=>{if(!s)return "";const [y,m,d]=s.split("-");return d+"/"+m+"/"+y};
+const utc=s=>{const [y,m,d]=s.split("-").map(Number);return Date.UTC(y,m-1,d)};
+const addMonths=(s,n)=>{const [y,m,d]=s.split("-").map(Number);const t=new Date(y,m-1+n,1);const last=new Date(t.getFullYear(),t.getMonth()+1,0).getDate();t.setDate(Math.min(d,last));return ymd(t)};
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const $=s=>document.querySelector(s);
+
+/* ---------- dữ liệu ---------- */
+let state={txns:[],assets:[],maints:[],settings:{name:"",openMaint:0,openOps:0}};
+let me=null, ready=false, loaded=0, dl=true, fb=null;
+let filt={txn:{fund:"",type:"",month:"",q:""},asset:{kind:"",q:""},maint:{asset:""}};
+
+function toast(msg){const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>t.hidden=true,3800)}
+async function api(a,body){
+  const opt=body?{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify(body)}:{credentials:"same-origin"};
+  const r=await fetch("api.php?a="+a,opt);
+  let j={};try{j=await r.json()}catch(e){}
+  if(!r.ok){const e=new Error(j.error||"error");e.status=r.status;e.code=j.error;throw e}
+  return j;
+}
+function fail(e){
+  if(e&&e.status===401){me=null;render();toast("Phiên đăng nhập đã hết. Hãy đăng nhập lại.");return}
+  if(e&&e.status===403)toast("Tài khoản này chỉ xem được, không sửa được dữ liệu.");
+  else if(e&&e.status===429)toast("Thao tác quá nhiều lần. Thử lại sau ít phút.");
+  else toast("Chưa lưu được. Kiểm tra kết nối rồi thử lại.");
+}
+async function put(col,id,data){
+  try{
+    await api("put",{col,id,data});
+    const arr=state[col],o=Object.assign({},data,{id}),i=arr.findIndex(x=>x.id===id);
+    i>=0?arr[i]=o:arr.push(o);render();return true;
+  }catch(e){fail(e);return false}
+}
+async function del(col,id){
+  try{await api("del",{col,id});state[col]=state[col].filter(x=>x.id!==id);render();return true}catch(e){fail(e);return false}
+}
+async function putSettings(s){
+  try{await api("put",{col:"settings",id:"main",data:s});state.settings=s;render();return true}catch(e){fail(e);return false}
+}
+async function loadAll(){
+  const j=await api("all");
+  state.txns=j.txns||[];state.assets=j.assets||[];state.maints=j.maints||[];
+  state.settings=Object.assign({name:"",openMaint:0,openOps:0},j.settings||{});
+  loaded=3;
+}
+async function loadFb(){try{fb=(await api("feedback_list")).items;render()}catch(e){fail(e)}}
+async function refresh(){
+  if(!me||document.hidden||$("#modal").firstChild)return;
+  try{await loadAll();if(curTab()==="gop-y"&&me.role==="editor")fb=(await api("feedback_list")).items;render()}catch(e){if(e.status===401){me=null;render()}}
+}
+
+/* ---------- tính toán ---------- */
+const sum=(a,f)=>a.reduce((t,x)=>t+(f?f(x):x),0);
+function balance(fund){
+  const open=Number(fund==="maint"?state.settings.openMaint:state.settings.openOps)||0;
+  return open+sum(state.txns.filter(t=>t.fund===fund),t=>t.type==="in"?t.amount:-t.amount);
+}
+function monthFlow(fund,m){
+  const a=state.txns.filter(t=>t.fund===fund&&(t.date||"").slice(0,7)===m);
+  return {in:sum(a.filter(t=>t.type==="in"),t=>t.amount),out:sum(a.filter(t=>t.type==="out"),t=>t.amount)};
+}
+const assetById=id=>state.assets.find(a=>a.id===id);
+function assetInfo(a){
+  const logs=state.maints.filter(m=>m.assetId===a.id).sort((x,y)=>y.date.localeCompare(x.date));
+  const last=logs[0]?logs[0].date:null;
+  const base=last||a.buyDate||null;
+  const cycle=Number(a.cycle)||0;
+  const info={last,logs,total:sum(logs,m=>Number(m.cost)||0),due:null,days:null,key:"none",label:"Chưa đặt chu kỳ",cls:"mute"};
+  if(a.status==="Ngưng sử dụng"){info.key="off";info.label="Ngưng sử dụng";return info}
+  if(!cycle||!base)return info;
+  info.due=addMonths(base,cycle);
+  info.days=Math.round((utc(info.due)-utc(today()))/864e5);
+  if(info.days<0){info.key="over";info.label="Quá hạn "+(-info.days)+" ngày";info.cls="bad"}
+  else if(info.days<=30){info.key="soon";info.label=info.days===0?"Đến hạn hôm nay":"Còn "+info.days+" ngày";info.cls="warn"}
+  else{info.key="ok";info.label="Còn "+info.days+" ngày";info.cls="good"}
+  return info;
+}
+function dueAssets(){
+  return state.assets.map(a=>({a,i:assetInfo(a)})).filter(x=>x.i.due&&x.i.key!=="off").sort((x,y)=>x.i.days-y.i.days);
+}
+const hasSample=()=>[...state.txns,...state.assets,...state.maints].some(x=>x.sample);
+
+/* ---------- giao diện ---------- */
+function curTab(){const h=location.hash.slice(1);return TABS.includes(h)&&(h!=="gop-y"||(me&&me.role==="editor"))?h:"tong-quan"}
+function vLogin(){
+  return `<form class="card login" id="loginForm"><h2>Đăng nhập</h2><p style="margin:0;color:var(--muted)">Số liệu quỹ và tài sản chỉ dành cho Ban quản trị và cư dân The Vista An Phú. Nhập mật khẩu được cấp để xem.</p><label for="pw">Mật khẩu<input id="pw" name="password" type="password" autocomplete="current-password" required></label><button class="btn primary" type="submit" style="justify-content:center">Đăng nhập</button><div class="meta" style="font-size:13px;color:var(--muted)">Chưa có mật khẩu? Liên hệ Ban quản trị, hoặc bấm “Góp ý” ở trên để gửi lời nhắn.</div></form>`;
+}
+function vFeedback(){
+  if(fb===null){loadFb();return '<div class="empty">Đang tải góp ý…</div>'}
+  return `<div class="head-row"><h2>Góp ý nhận được</h2><a class="btn" href="${REPO}/issues" target="_blank" rel="noopener">Góp ý công khai trên GitHub</a></div>
+  ${fb.length?'<div class="list">'+fb.map(f=>`<div class="item fb"><div class="t"><strong>${esc(f.kind||"Khác")}</strong> <span style="display:inline">· ${new Date(f.created*1000).toLocaleString("vi-VN")}${f.name?" · "+esc(f.name):""}${f.contact?" · "+esc(f.contact):""}</span><p>${esc(f.message)}</p></div><button class="btn small danger" data-act="del-fb" data-id="${f.id}">Xóa</button></div>`).join("")+"</div>":'<div class="card empty">Chưa có góp ý nào.</div>'}`;
+}
+function render(){
+  const act=document.activeElement;const keep=act&&act.id&&act.closest("#view")?{id:act.id,s:act.selectionStart,e:act.selectionEnd}:null;
+  const editor=!!me&&me.role==="editor";
+  document.body.classList.toggle("ro",!editor);
+  $("#tabGopY").hidden=!editor;$("#btnLogout").hidden=!me;
+  document.querySelector("nav.tabs").hidden=!me;
+  const tab=curTab();
+  document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===tab?"page":"false"));
+  $("#orgName").textContent=state.settings.name||"The Vista An Phú";
+  const v=$("#view");
+  if(!ready){v.innerHTML='<div class="empty">Đang tải…</div>';return}
+  if(!me){v.innerHTML=vLogin();return}
+  if(loaded<3){v.innerHTML='<div class="empty">Đang tải dữ liệu…</div>';return}
+  let html="";
+  if(hasSample()&&editor)html+='<div class="banner info"><span>Đang hiển thị dữ liệu mẫu để bạn xem thử cách dùng.</span><button class="btn small" data-act="clear-sample">Xóa dữ liệu mẫu</button></div>';
+  html+=({"tong-quan":vOverview,"thu-chi":vTxns,"tai-san":vAssets,"bao-tri":vMaint,"gop-y":vFeedback})[tab]();
+  v.innerHTML=html;
+  if(keep){const el=document.getElementById(keep.id);if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e)}catch(e){}}}
+}
+const isEmpty=()=>!state.txns.length&&!state.assets.length&&!state.maints.length;
+function emptyAll(){return '<div class="card empty"><h2>Chưa có dữ liệu</h2><p>Bắt đầu bằng việc nhập số dư đầu kỳ của hai quỹ, rồi ghi khoản thu chi và thêm tài sản. Hoặc nạp dữ liệu mẫu để xem trước.</p><div class="actions" style="justify-content:center"><button class="btn primary" data-act="settings">Nhập số dư đầu kỳ</button><button class="btn" data-act="seed">Nạp dữ liệu mẫu</button></div></div>'}
+
+function dueItems(list){
+  if(!list.length)return '<div class="empty">Chưa có tài sản nào đặt chu kỳ bảo trì.</div>';
+  return '<div class="list">'+list.map(({a,i})=>`<div class="item"><div class="t"><strong>${esc(a.name)}</strong><span>${esc(a.code||"")} · ${esc(a.location||a.kind)} · hạn ${vdate(i.due)}</span></div><div class="actions"><span class="pill ${i.cls}">${esc(i.label)}</span><button class="btn small" data-act="add-maint" data-id="${esc(a.id)}">Ghi bảo trì</button></div></div>`).join("")+'</div>';
+}
+
+function vOverview(){
+  if(isEmpty())return emptyAll();
+  const m=today().slice(0,7);
+  const fundCard=f=>{const fl=monthFlow(f,m);return `<div class="card fund"><div class="label">${FUNDS[f]}</div><div class="bal num">${money(balance(f))}</div><div class="sub num"><span>Thu tháng này: <b class="in">+${money(fl.in)}</b></span><span>Chi tháng này: <b class="outc">−${money(fl.out)}</b></span></div></div>`};
+  const months=[];for(let k=5;k>=0;k--){const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-k);months.push(d.getFullYear()+"-"+pad(d.getMonth()+1))}
+  const data=months.map(mm=>{const a=state.txns.filter(t=>(t.date||"").slice(0,7)===mm);return{mm,i:sum(a.filter(t=>t.type==="in"),t=>t.amount),o:sum(a.filter(t=>t.type==="out"),t=>t.amount)}});
+  const max=Math.max(1,...data.map(d=>Math.max(d.i,d.o)));
+  const lab=`Thu chi 6 tháng gần nhất: `+data.map(d=>`tháng ${d.mm.slice(5)}: thu ${short(d.i)}, chi ${short(d.o)}`).join("; ");
+  const chart=`<div class="chart" role="img" aria-label="${esc(lab)}">`+data.map(d=>`<div class="m"><div class="bars"><div class="bar i" style="height:${Math.max(2,d.i/max*100)}%"><span>${d.i?short(d.i):""}</span></div><div class="bar o" style="height:${Math.max(2,d.o/max*100)}%"><span>${d.o?short(d.o):""}</span></div></div><div class="lab">${d.mm.slice(5)}/${d.mm.slice(2,4)}</div></div>`).join("")+"</div>";
+  const alerts=dueAssets().filter(x=>x.i.key==="over"||x.i.key==="soon").slice(0,6);
+  const recent=[...state.txns].sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id)).slice(0,6);
+  return `<div class="grid2">${fundCard("maint")}${fundCard("ops")}</div>
+  <div class="grid2">
+    <section class="card"><div class="head-row"><h2>Cần bảo trì</h2><button class="btn small" data-tab="bao-tri">Xem lịch</button></div>${alerts.length?dueItems(alerts):'<div class="empty">Không có tài sản nào quá hạn hoặc sắp đến hạn trong 30 ngày.</div>'}</section>
+    <section class="card"><div class="head-row"><h2>Thu chi 6 tháng</h2><div class="legend"><span><i style="background:var(--in)"></i>Thu</span><span><i style="background:var(--out)"></i>Chi</span></div></div>${chart}</section>
+  </div>
+  <section class="card"><div class="head-row"><h2>Giao dịch gần đây</h2><div class="actions"><button class="btn small primary" data-act="add-in">+ Khoản thu</button><button class="btn small out" data-act="add-out">+ Khoản chi</button></div></div>
+  ${recent.length?'<div class="list">'+recent.map(t=>`<div class="item"><div class="t"><strong>${esc(t.category)}</strong><span>${vdate(t.date)} · ${FUNDS[t.fund]||""}${t.party?" · "+esc(t.party):""}</span></div><b class="num ${t.type==="in"?"in":"outc"}">${t.type==="in"?"+":"−"}${money(t.amount)}</b></div>`).join("")+"</div>":'<div class="empty">Chưa có giao dịch.</div>'}</section>`;
+}
+
+function txnFiltered(){
+  const f=filt.txn,q=f.q.trim().toLowerCase();
+  return state.txns.filter(t=>(!f.fund||t.fund===f.fund)&&(!f.type||t.type===f.type)&&(!f.month||(t.date||"").slice(0,7)===f.month)&&(!q||[t.category,t.party,t.note].join(" ").toLowerCase().includes(q))).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
+}
+function opt(list,sel,all){return (all?`<option value="">${all}</option>`:"")+list.map(x=>{const v=Array.isArray(x)?x[0]:x,l=Array.isArray(x)?x[1]:x;return `<option value="${esc(v)}"${v===sel?" selected":""}>${esc(l)}</option>`}).join("")}
+function vTxns(){
+  const f=filt.txn,rows=txnFiltered();
+  const tin=sum(rows.filter(t=>t.type==="in"),t=>t.amount),tout=sum(rows.filter(t=>t.type==="out"),t=>t.amount);
+  return `<div class="head-row"><h2>Thu chi</h2><div class="actions">${dl?'<button class="btn" data-act="export-txn">Xuất CSV</button>':""}<button class="btn primary" data-act="add-in">+ Khoản thu</button><button class="btn out" data-act="add-out">+ Khoản chi</button></div></div>
+  <div class="filters">
+    <label>Quỹ<select id="f-fund" data-f="txn.fund">${opt(Object.entries(FUNDS),f.fund,"Tất cả")}</select></label>
+    <label>Loại<select id="f-type" data-f="txn.type">${opt([["in","Thu"],["out","Chi"]],f.type,"Thu và chi")}</select></label>
+    <label>Tháng<input id="f-month" type="month" data-f="txn.month" value="${esc(f.month)}"></label>
+    <label>Tìm kiếm<input id="f-q" type="search" data-f="txn.q" data-live="1" value="${esc(f.q)}" placeholder="Nội dung, đối tượng"></label>
+  </div>
+  <div class="summary num"><span>${rows.length} giao dịch</span><span>Tổng thu: <b class="in">${money(tin)}</b></span><span>Tổng chi: <b class="outc">${money(tout)}</b></span><span>Chênh lệch: <b>${tin-tout<0?"−":""}${money(Math.abs(tin-tout))}</b></span></div>
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Ngày</th><th>Quỹ</th><th>Nội dung</th><th>Tài sản</th><th class="r">Số tiền</th><th></th></tr></thead><tbody>${rows.map(t=>{const a=assetById(t.assetId);return `<tr><td class="num">${vdate(t.date)}</td><td>${FUNDS[t.fund]||""}</td><td><strong>${esc(t.category)}</strong>${t.party?`<span class="meta">${esc(t.party)}</span>`:""}${t.note?`<span class="meta">${esc(t.note)}</span>`:""}</td><td>${a?esc(a.name):""}</td><td class="r num"><b class="${t.type==="in"?"in":"outc"}">${t.type==="in"?"+":"−"}${money(t.amount)}</b></td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="edit-txn" data-id="${esc(t.id)}">Sửa</button><button class="btn small danger" data-act="del-txn" data-id="${esc(t.id)}">Xóa</button></div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Không có giao dịch nào khớp bộ lọc.</div>'}`;
+}
+
+function vAssets(){
+  const f=filt.asset,q=f.q.trim().toLowerCase();
+  const rows=state.assets.filter(a=>(!f.kind||a.kind===f.kind)&&(!q||[a.code,a.name,a.location].join(" ").toLowerCase().includes(q))).map(a=>({a,i:assetInfo(a)})).sort((x,y)=>(x.a.code||"").localeCompare(y.a.code||""));
+  const cnt=k=>state.assets.map(assetInfo).filter(i=>i.key===k).length;
+  return `<div class="head-row"><h2>Tài sản, thiết bị, máy móc, xe</h2><button class="btn primary" data-act="add-asset">+ Thêm tài sản</button></div>
+  <div class="summary num"><span>${state.assets.length} tài sản</span><span>Quá hạn bảo trì: <b class="${cnt("over")?"outc":""}">${cnt("over")}</b></span><span>Sắp đến hạn: <b>${cnt("soon")}</b></span><span>Tổng giá trị: <b>${money(sum(state.assets,a=>Number(a.value)||0))}</b></span></div>
+  <div class="filters"><label>Loại<select id="fa-kind" data-f="asset.kind">${opt(KINDS,f.kind,"Tất cả")}</select></label><label>Tìm kiếm<input id="fa-q" type="search" data-f="asset.q" data-live="1" value="${esc(f.q)}" placeholder="Mã, tên, vị trí"></label></div>
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Mã</th><th>Tài sản</th><th>Tình trạng</th><th>Bảo trì gần nhất</th><th>Hạn kế tiếp</th><th class="r">Chi phí bảo trì</th><th></th></tr></thead><tbody>${rows.map(({a,i})=>`<tr><td class="num">${esc(a.code||"")}</td><td><strong>${esc(a.name)}</strong><span class="meta">${esc(a.kind)}${a.location?" · "+esc(a.location):""}${a.value?" · "+money(a.value):""}</span></td><td><span class="pill ${a.status==="Tốt"?"good":a.status==="Hỏng"?"bad":a.status==="Cần theo dõi"?"warn":"mute"}">${esc(a.status||"Tốt")}</span></td><td class="num">${i.last?vdate(i.last):'<span class="meta">Chưa có</span>'}</td><td>${i.due?`<span class="num">${vdate(i.due)}</span><span class="meta"><span class="pill ${i.cls}">${esc(i.label)}</span></span>`:`<span class="pill ${i.cls}">${esc(i.label)}</span>`}</td><td class="r num">${money(i.total)}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="add-maint" data-id="${esc(a.id)}">Ghi bảo trì</button><button class="btn small" data-act="edit-asset" data-id="${esc(a.id)}">Sửa</button><button class="btn small danger" data-act="del-asset" data-id="${esc(a.id)}">Xóa</button></div></td></tr>`).join("")}</tbody></table></div>`:`<div class="card empty">${state.assets.length?"Không có tài sản nào khớp bộ lọc.":"Chưa có tài sản. Bấm “Thêm tài sản” để bắt đầu."}</div>`}`;
+}
+
+function vMaint(){
+  const f=filt.maint;
+  const rows=state.maints.filter(m=>!f.asset||m.assetId===f.asset).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
+  return `<div class="head-row"><h2>Bảo trì</h2><div class="actions">${dl?'<button class="btn" data-act="export-maint">Xuất CSV</button>':""}<button class="btn primary" data-act="add-maint">+ Ghi bảo trì</button></div></div>
+  <section class="card"><h3 style="margin-bottom:6px">Lịch tới hạn</h3>${dueItems(dueAssets())}</section>
+  <div class="head-row"><h3>Nhật ký bảo trì</h3><label class="filters" style="display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)">Tài sản<select id="fm-asset" data-f="maint.asset">${opt(state.assets.map(a=>[a.id,(a.code?a.code+" · ":"")+a.name]),f.asset,"Tất cả")}</select></label></div>
+  <div class="summary num"><span>${rows.length} lần bảo trì</span><span>Tổng chi phí: <b>${money(sum(rows,m=>Number(m.cost)||0))}</b></span></div>
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Ngày</th><th>Tài sản</th><th>Nội dung</th><th>Đơn vị thực hiện</th><th class="r">Chi phí</th><th></th></tr></thead><tbody>${rows.map(m=>{const a=assetById(m.assetId);return `<tr><td class="num">${vdate(m.date)}</td><td>${a?esc(a.name):'<span class="meta">(đã xóa)</span>'}</td><td><strong>${esc(m.title)}</strong>${m.note?`<span class="meta">${esc(m.note)}</span>`:""}</td><td>${esc(m.vendor||"")}</td><td class="r num">${Number(m.cost)?money(m.cost)+`<span class="meta">${m.txnId?FUNDS[m.fund]||"":"Chưa ghi vào quỹ"}</span>`:"—"}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="edit-maint" data-id="${esc(m.id)}">Sửa</button><button class="btn small danger" data-act="del-maint" data-id="${esc(m.id)}">Xóa</button></div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có lần bảo trì nào được ghi.</div>'}`;
+}
+
+/* ---------- hộp thoại ---------- */
+function openModal(title,body,onSubmit,okLabel){
+  const m=$("#modal");
+  m.innerHTML=`<div class="overlay" id="ov"><form class="modal" id="mform" role="dialog" aria-modal="true" aria-labelledby="mt"><h2 id="mt">${esc(title)}</h2>${body}<div class="modal-actions"><button type="button" class="btn" data-close="1">Hủy</button><button type="submit" class="btn primary">${esc(okLabel||"Lưu")}</button></div></form></div>`;
+  const form=$("#mform");
+  form.addEventListener("submit",async e=>{e.preventDefault();if(await onSubmit(new FormData(form),form)!==false)closeModal()});
+  const first=form.querySelector("input:not([type=hidden]),select");if(first)first.focus();
+}
+function closeModal(){$("#modal").innerHTML=""}
+function confirmBox(title,text,okLabel,fn){
+  openModal(title,`<p style="margin:0">${text}</p>`,async()=>{await fn()},okLabel);
+  const b=$("#mform .btn.primary");b.classList.add("danger");b.style.background="var(--bad)";b.style.color="#fff";b.style.borderColor="var(--bad)";
+}
+const F=(id,label,inner,cls)=>`<label class="${cls||""}" for="${id}">${label}${inner}</label>`;
+const num=v=>{const n=Number(v);return isFinite(n)?n:0};
+
+function txnForm(type,t){
+  const cur=t||{type,fund:"ops",date:today(),category:"",amount:"",party:"",note:"",assetId:""};
+  const title=t?"Sửa giao dịch":(type==="in"?"Thêm khoản thu":"Thêm khoản chi");
+  openModal(title,`<div class="fields">
+    ${F("x-date","Ngày",`<input id="x-date" name="date" type="date" required value="${esc(cur.date)}">`)}
+    ${F("x-fund","Quỹ",`<select id="x-fund" name="fund">${opt(Object.entries(FUNDS),cur.fund)}</select>`)}
+    ${F("x-type","Loại",`<select id="x-type" name="type">${opt([["in","Thu"],["out","Chi"]],cur.type)}</select>`)}
+    ${F("x-amount","Số tiền (₫)",`<input id="x-amount" name="amount" type="number" min="1" step="1" required inputmode="numeric" value="${esc(cur.amount)}">`)}
+    ${F("x-cat","Hạng mục",`<select id="x-cat" name="category">${opt(CATS[cur.type],cur.category)}</select>`,"full")}
+    ${F("x-party","Người nộp hoặc nhà cung cấp",`<input id="x-party" name="party" value="${esc(cur.party||"")}">`,"full")}
+    ${F("x-asset","Tài sản liên quan (nếu có)",`<select id="x-asset" name="assetId">${opt(state.assets.map(a=>[a.id,(a.code?a.code+" · ":"")+a.name]),cur.assetId,"Không")}</select>`,"full")}
+    ${F("x-note","Ghi chú, số chứng từ",`<textarea id="x-note" name="note">${esc(cur.note||"")}</textarea>`,"full")}
+  </div>`,async fd=>{
+    const data={date:fd.get("date"),fund:fd.get("fund"),type:fd.get("type"),amount:num(fd.get("amount")),category:fd.get("category"),party:fd.get("party").trim(),note:fd.get("note").trim(),assetId:fd.get("assetId")};
+    if(t){if(t.maintId)data.maintId=t.maintId;if(t.sample)data.sample=true}
+    if(data.amount<=0){toast("Số tiền phải lớn hơn 0.");return false}
+    if(!await put("txns",t?t.id:"t"+uid(),data))return false;
+  });
+  $("#x-type").addEventListener("change",e=>{$("#x-cat").innerHTML=opt(CATS[e.target.value],"")});
+}
+
+function assetForm(a){
+  const n=state.assets.length+1;
+  const cur=a||{code:"TS-"+String(n).padStart(3,"0"),name:"",kind:"Thiết bị",location:"",buyDate:"",value:"",status:"Tốt",cycle:6,note:""};
+  openModal(a?"Sửa tài sản":"Thêm tài sản",`<div class="fields">
+    ${F("a-code","Mã",`<input id="a-code" name="code" value="${esc(cur.code)}">`)}
+    ${F("a-kind","Loại",`<select id="a-kind" name="kind">${opt(KINDS,cur.kind)}</select>`)}
+    ${F("a-name","Tên tài sản",`<input id="a-name" name="name" required value="${esc(cur.name)}">`,"full")}
+    ${F("a-loc","Vị trí, biển số",`<input id="a-loc" name="location" value="${esc(cur.location||"")}">`,"full")}
+    ${F("a-buy","Ngày mua, đưa vào sử dụng",`<input id="a-buy" name="buyDate" type="date" value="${esc(cur.buyDate||"")}">`)}
+    ${F("a-val","Giá trị (₫)",`<input id="a-val" name="value" type="number" min="0" step="1" value="${esc(cur.value||"")}">`)}
+    ${F("a-st","Tình trạng",`<select id="a-st" name="status">${opt(STATUSES,cur.status)}</select>`)}
+    ${F("a-cy","Chu kỳ bảo trì (tháng, 0 là không đặt)",`<input id="a-cy" name="cycle" type="number" min="0" max="120" step="1" value="${esc(cur.cycle)}">`)}
+    ${F("a-note","Ghi chú",`<textarea id="a-note" name="note">${esc(cur.note||"")}</textarea>`,"full")}
+  </div>`,async fd=>{
+    const data={code:fd.get("code").trim(),name:fd.get("name").trim(),kind:fd.get("kind"),location:fd.get("location").trim(),buyDate:fd.get("buyDate"),value:num(fd.get("value")),status:fd.get("status"),cycle:num(fd.get("cycle")),note:fd.get("note").trim()};
+    if(a&&a.sample)data.sample=true;
+    if(!await put("assets",a?a.id:"a"+uid(),data))return false;
+  });
+}
+
+function maintForm(m,assetId){
+  if(!state.assets.length){toast("Hãy thêm tài sản trước khi ghi bảo trì.");location.hash="tai-san";return}
+  const cur=m||{date:today(),assetId:assetId||state.assets[0].id,title:"Bảo trì định kỳ",vendor:"",cost:"",fund:"maint",note:"",txnId:""};
+  const linked=m?!!m.txnId:true;
+  openModal(m?"Sửa lần bảo trì":"Ghi bảo trì",`<div class="fields">
+    ${F("m-date","Ngày thực hiện",`<input id="m-date" name="date" type="date" required value="${esc(cur.date)}">`)}
+    ${F("m-asset","Tài sản",`<select id="m-asset" name="assetId" required>${opt(state.assets.map(a=>[a.id,(a.code?a.code+" · ":"")+a.name]),cur.assetId)}</select>`)}
+    ${F("m-title","Nội dung",`<input id="m-title" name="title" required value="${esc(cur.title)}">`,"full")}
+    ${F("m-vendor","Đơn vị thực hiện",`<input id="m-vendor" name="vendor" value="${esc(cur.vendor||"")}">`,"full")}
+    ${F("m-cost","Chi phí (₫)",`<input id="m-cost" name="cost" type="number" min="0" step="1" value="${esc(cur.cost||"")}">`)}
+    ${F("m-fund","Chi từ quỹ",`<select id="m-fund" name="fund">${opt(Object.entries(FUNDS),cur.fund||"maint")}</select>`)}
+    <label class="check full" for="m-tx"><input id="m-tx" name="makeTxn" type="checkbox"${linked?" checked":""}> Tự ghi khoản chi này vào quỹ</label>
+    ${F("m-note","Ghi chú",`<textarea id="m-note" name="note">${esc(cur.note||"")}</textarea>`,"full")}
+  </div>`,async fd=>{
+    const id=m?m.id:"m"+uid();
+    const cost=num(fd.get("cost"));
+    const make=fd.get("makeTxn")&&cost>0;
+    const txnId=make?"mt_"+id:"";
+    const data={date:fd.get("date"),assetId:fd.get("assetId"),title:fd.get("title").trim(),vendor:fd.get("vendor").trim(),cost,fund:fd.get("fund"),note:fd.get("note").trim(),txnId};
+    if(m&&m.sample)data.sample=true;
+    if(!await put("maints",id,data))return false;
+    const a=assetById(data.assetId);
+    if(make){const old=state.txns.find(t=>t.id===txnId);
+      await put("txns",txnId,{date:data.date,fund:data.fund,type:"out",amount:cost,category:"Bảo trì, sửa chữa",party:data.vendor,note:data.title+(a?" · "+a.name:""),assetId:data.assetId,maintId:id,...(data.sample||(old&&old.sample)?{sample:true}:{})});
+    }else if(m&&m.txnId){await del("txns",m.txnId)}
+  });
+}
+
+function settingsForm(){
+  const s=state.settings;
+  openModal("Tên đơn vị và số dư đầu kỳ",`<div class="fields">
+    ${F("s-name","Tên chung cư",`<input id="s-name" name="name" value="${esc(s.name||"")}">`,"full")}
+    ${F("s-m","Số dư đầu kỳ, quỹ bảo trì (₫)",`<input id="s-m" name="openMaint" type="number" step="1" value="${esc(s.openMaint||0)}">`)}
+    ${F("s-o","Số dư đầu kỳ, quỹ vận hành (₫)",`<input id="s-o" name="openOps" type="number" step="1" value="${esc(s.openOps||0)}">`)}
+  </div><p style="margin:0;font-size:13px;color:var(--muted)">Số dư hiện tại của mỗi quỹ bằng số dư đầu kỳ cộng tổng thu trừ tổng chi đã ghi.</p>`,async fd=>{
+    return await putSettings({name:fd.get("name").trim(),openMaint:num(fd.get("openMaint")),openOps:num(fd.get("openOps"))});
+  });
+}
+
+/* ---------- dữ liệu mẫu ---------- */
+async function seed(){
+  const D=(m,day)=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-m);d.setDate(day);return ymd(d)};
+  const ago=n=>{const d=new Date();d.setDate(d.getDate()-n);return ymd(d)};
+  const ok=await putSettings({name:"The Vista An Phú (dữ liệu thử)",openMaint:1850000000,openOps:320000000});
+  if(!ok)return;
+  const A=[
+    ["as1","TS-001","Thang máy block T3","Thiết bị","Tầng hầm, thang số 1","2022-03-15",850000000,"Tốt",1],
+    ["as2","TS-002","Máy phát điện dự phòng 500 kVA","Máy móc","Phòng máy phát","2021-08-10",1200000000,"Tốt",3],
+    ["as3","TS-003","Hệ thống bơm chữa cháy","Máy móc","Phòng bơm hầm B1","2021-08-10",420000000,"Cần theo dõi",6],
+    ["as4","TS-004","Xe điện đưa đón cư dân","Xe","Biển số 51A-123.45","2023-05-20",180000000,"Tốt",6],
+    ["as5","TS-005","Máy bơm nước sinh hoạt","Máy móc","Phòng bơm mái","2022-03-15",96000000,"Tốt",3]
+  ];
+  for(const a of A)await put("assets",a[0],{code:a[1],name:a[2],kind:a[3],location:a[4],buyDate:a[5],value:a[6],status:a[7],cycle:a[8],note:"",sample:true});
+  const M=[
+    ["mm1","as1",ago(20),"Bảo trì định kỳ tháng",  "Công ty Thang máy Việt",4500000],
+    ["mm2","as2",ago(45),"Chạy thử tải, thay lọc dầu","Công ty Cơ điện Nam Á",12800000],
+    ["mm3","as3",ago(210),"Kiểm tra áp lực, thay gioăng","Đội PCCC Sài Gòn",9600000],
+    ["mm4","as4",ago(150),"Thay ắc quy, kiểm tra phanh","Gara Hoàng Long",14200000],
+    ["mm5","as5",ago(60),"Vệ sinh, thay bi trục","Cơ điện Tân Phú",3800000]
+  ];
+  for(const m of M){
+    await put("maints",m[0],{date:m[2],assetId:m[1],title:m[3],vendor:m[4],cost:m[5],fund:"maint",note:"",txnId:"mt_"+m[0],sample:true});
+    await put("txns","mt_"+m[0],{date:m[2],fund:"maint",type:"out",amount:m[5],category:"Bảo trì, sửa chữa",party:m[4],note:m[3]+" · "+assetById(m[1]).name,assetId:m[1],maintId:m[0],sample:true});
+  }
+  const T=[];
+  for(let k=0;k<5;k++){
+    const v=k*3%5;
+    T.push(["maint","in","Phí bảo trì (2%)","Cư dân The Vista, đợt "+(5-k),D(k,5),101000000+v*3000000]);
+    T.push(["ops","in","Phí quản lý vận hành","Cư dân tháng "+pad(Number(D(k,1).slice(5,7))),D(k,5),214000000+v*2500000]);
+    T.push(["ops","in","Phí gửi xe","Ban quản lý bãi xe",D(k,10),38500000+v*1200000]);
+    T.push(["ops","out","Điện, nước","Điện lực, Cấp nước",D(k,12),86000000+v*2200000]);
+    T.push(["ops","out","Lương, nhân sự","Bảng lương tháng",D(k,28),121000000]);
+    T.push(["ops","out","Bảo vệ, an ninh","Công ty Bảo vệ An Tín",D(k,15),64000000]);
+    T.push(["ops","out","Vệ sinh, môi trường","Công ty Vệ sinh Xanh",D(k,15),28500000]);
+  }
+  T.forEach((t,i)=>{if(t[4]>today())t[4]=today()});
+  let n=0;for(const t of T)await put("txns","st"+(n++),{fund:t[0],type:t[1],category:t[2],party:t[3],date:t[4],amount:t[5],note:"",assetId:"",sample:true});
+  toast("Đã nạp dữ liệu mẫu.");
+}
+async function clearSample(){
+  for(const c of ["txns","maints","assets"])for(const x of state[c].filter(x=>x.sample))await del(c,x.id);
+  if(state.settings.name&&state.settings.name.includes("dữ liệu thử"))await putSettings({name:"",openMaint:0,openOps:0});
+  toast("Đã xóa dữ liệu mẫu.");
+}
+
+/* ---------- xuất CSV ---------- */
+function exportCsv(name,head,rows){
+  const q=v=>'"'+String(v==null?"":v).replace(/"/g,'""')+'"';
+  const text="\ufeff"+[head,...rows].map(r=>r.map(q).join(",")).join("\r\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:"text/csv;charset=utf-8"}));a.download=name;
+  document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+}
+/* ---------- góp ý ---------- */
+function feedbackForm(){
+  openModal("Góp ý cho trang quản lý",`<div class="fields">
+    ${F("g-kind","Loại góp ý",`<select id="g-kind" name="kind">${opt(["Góp ý tính năng","Báo lỗi","Khác"],"Góp ý tính năng")}</select>`,"full")}
+    ${F("g-msg","Nội dung",`<textarea id="g-msg" name="message" required minlength="3" maxlength="2000" rows="5" placeholder="Bạn muốn trang làm thêm gì, hoặc gặp lỗi gì?"></textarea>`,"full")}
+    ${F("g-name","Tên (không bắt buộc)",`<input id="g-name" name="name" maxlength="100" autocomplete="name">`)}
+    ${F("g-contact","Zalo hoặc email (không bắt buộc)",`<input id="g-contact" name="contact" maxlength="120">`)}
+    <div class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
+  </div><p style="margin:0;font-size:13px;color:var(--muted)">Góp ý được gửi đến Ban quản trị. Muốn thảo luận công khai hoặc tự đề xuất sửa mã nguồn, mở <a href="${REPO}/issues/new/choose" target="_blank" rel="noopener" style="color:var(--accent)">trang GitHub của dự án</a>. Đừng ghi mật khẩu hay thông tin cá nhân nhạy cảm vào góp ý.</p>`,async fd=>{
+    try{await api("feedback",{kind:fd.get("kind"),message:fd.get("message"),name:fd.get("name"),contact:fd.get("contact"),website:fd.get("website")});toast("Cảm ơn bạn đã góp ý.")}
+    catch(e){toast(e.status===429?"Bạn gửi quá nhiều góp ý. Thử lại sau một giờ.":"Chưa gửi được góp ý. Thử lại sau.");return false}
+  },"Gửi góp ý");
+}
+
+/* ---------- sự kiện ---------- */
+document.addEventListener("click",e=>{
+  const ov=e.target.closest("#ov");if(ov&&e.target===ov){closeModal();return}
+  if(e.target.closest("[data-close]")){closeModal();return}
+  const tb=e.target.closest("[data-tab]");if(tb){location.hash=tb.dataset.tab;return}
+  const b=e.target.closest("[data-act]");if(!b)return;
+  const id=b.dataset.id,act=b.dataset.act;
+  if(act==="add-in")txnForm("in");
+  else if(act==="add-out")txnForm("out");
+  else if(act==="edit-txn")txnForm(null,state.txns.find(t=>t.id===id));
+  else if(act==="del-txn"){const t=state.txns.find(x=>x.id===id);confirmBox("Xóa giao dịch?",`Xóa khoản ${t.type==="in"?"thu":"chi"} ${esc(money(t.amount))} (${esc(t.category)}) ngày ${vdate(t.date)}? Số dư quỹ sẽ được tính lại.`,"Xóa",async()=>{await del("txns",id);if(t.maintId){const m=state.maints.find(x=>x.id===t.maintId);if(m)await put("maints",m.id,Object.assign({},m,{id:undefined,txnId:""}))}})}
+  else if(act==="add-asset")assetForm();
+  else if(act==="edit-asset")assetForm(assetById(id));
+  else if(act==="del-asset"){const a=assetById(id);const n=state.maints.filter(m=>m.assetId===id).length;confirmBox("Xóa tài sản?",`Xóa “${esc(a.name)}”?${n?` ${n} lần bảo trì của tài sản này vẫn được giữ trong nhật ký.`:""}`,"Xóa",()=>del("assets",id))}
+  else if(act==="add-maint")maintForm(null,id);
+  else if(act==="edit-maint")maintForm(state.maints.find(m=>m.id===id));
+  else if(act==="del-maint"){const m=state.maints.find(x=>x.id===id);confirmBox("Xóa lần bảo trì?",`Xóa “${esc(m.title)}” ngày ${vdate(m.date)}?${m.txnId?" Khoản chi tương ứng trong quỹ cũng bị xóa.":""}`,"Xóa",async()=>{if(m.txnId)await del("txns",m.txnId);await del("maints",id)})}
+  else if(act==="settings")settingsForm();
+  else if(act==="feedback")feedbackForm();
+  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;loaded=0;state={txns:[],assets:[],maints:[],settings:{name:"",openMaint:0,openOps:0}};render()})}
+  else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(e){fail(e)}})}
+  else if(act==="seed"){b.disabled=true;seed()}
+  else if(act==="clear-sample"){confirmBox("Xóa dữ liệu mẫu?","Chỉ các dòng mẫu bị xóa. Dữ liệu bạn nhập được giữ nguyên.","Xóa dữ liệu mẫu",clearSample)}
+  else if(act==="export-txn")exportCsv("thu-chi.csv",["Ngày","Quỹ","Loại","Hạng mục","Đối tượng","Số tiền","Tài sản","Ghi chú"],txnFiltered().map(t=>[t.date,FUNDS[t.fund],t.type==="in"?"Thu":"Chi",t.category,t.party,t.amount,(assetById(t.assetId)||{}).name||"",t.note]));
+  else if(act==="export-maint")exportCsv("bao-tri.csv",["Ngày","Mã tài sản","Tài sản","Nội dung","Đơn vị thực hiện","Chi phí"],state.maints.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(m=>{const a=assetById(m.assetId)||{};return [m.date,a.code||"",a.name||"",m.title,m.vendor,m.cost]}));
+});
+function onFilter(e){
+  const el=e.target.closest("[data-f]");if(!el)return;
+  if(e.type==="input"&&!el.dataset.live)return;
+  if(e.type==="change"&&el.dataset.live)return;
+  const [g,k]=el.dataset.f.split(".");filt[g][k]=el.value;render();
+}
+document.addEventListener("input",onFilter);
+document.addEventListener("change",onFilter);
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal()});
+window.addEventListener("hashchange",()=>{if(curTab()==="gop-y")fb=null;render();window.scrollTo(0,0)});
+document.addEventListener("submit",async e=>{
+  if(e.target.id!=="loginForm")return;
+  e.preventDefault();
+  const btn=e.target.querySelector("button");btn.disabled=true;
+  try{
+    me=await api("login",{password:new FormData(e.target).get("password")});
+    await loadAll();render();
+  }catch(err){
+    me=null;btn.disabled=false;
+    toast(err.status===429?"Nhập sai nhiều lần. Thử lại sau 10 phút.":err.status===401?"Mật khẩu chưa đúng.":"Không đăng nhập được. Thử lại sau.");
+  }
+});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh()});
+setInterval(refresh,30000);
+(async()=>{
+  render();
+  try{const j=await api("me");me=j.role?j:null;if(me)await loadAll()}catch(e){me=null}
+  ready=true;render();
+})();
+</script>
+</body>
+</html>

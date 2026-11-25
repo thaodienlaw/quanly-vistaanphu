@@ -1,0 +1,11 @@
+# Chặn truy cập trực tiếp vào tệp cấu hình và dữ liệu
+<FilesMatch "^(config(\.sample)?\.php|.*\.sqlite|.*\.md|\.git.*)$">
+  Require all denied
+</FilesMatch>
+Options -Indexes
+<IfModule mod_headers.c>
+  Header set X-Content-Type-Options "nosniff"
+  Header set Referrer-Policy "same-origin"
+  Header set X-Frame-Options "SAMEORIGIN"
+</IfModule>
+DirectoryIndex index.html

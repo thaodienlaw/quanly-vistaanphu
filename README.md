@@ -1,0 +1,44 @@
+# Quản lý The Vista An Phú
+
+Trang web đơn giản để Ban quản trị chung cư The Vista An Phú quản lý:
+
+- **Quỹ bảo trì** và **quỹ vận hành**: ghi khoản thu, khoản chi, xem số dư và biểu đồ 6 tháng.
+- **Tài sản**: thiết bị, máy móc, xe, kèm tình trạng và chu kỳ bảo trì.
+- **Bảo trì**: nhật ký bảo trì, lịch tới hạn, tự ghi chi phí vào quỹ.
+- **Góp ý**: nút “Góp ý” trên đầu trang cho mọi người gửi ý kiến.
+
+Chạy tại: https://quanly.vistaanphu.com
+
+## Công nghệ
+
+Một trang `index.html` (HTML, CSS, JavaScript thuần, không cần build) và một tệp `api.php` (PHP 8 + SQLite). Chạy được trên hosting PHP thông thường, không cần MySQL.
+
+## Cài đặt
+
+1. Sao chép `config.sample.php` thành `config.php`.
+2. Tạo mã băm mật khẩu và dán vào `config.php`:
+   ```
+   php -r 'echo password_hash("mat-khau-cua-ban", PASSWORD_DEFAULT), "\n";'
+   ```
+   - `editor_hash`: mật khẩu Ban quản trị và kế toán (xem và sửa).
+   - `viewer_hash`: mật khẩu cư dân (chỉ xem). Để trống nếu không cho cư dân xem.
+3. Đặt `db` trỏ tới một thư mục **ngoài** thư mục web (mặc định là `../quanly-data/`).
+4. Tải các tệp `index.html`, `api.php`, `.htaccess`, `config.php` lên thư mục web.
+
+Chạy thử trên máy: `php -S 127.0.0.1:8080` rồi mở http://127.0.0.1:8080.
+
+## Bảo mật
+
+- Số liệu quỹ cần đăng nhập mới xem được. Đăng nhập sai quá 8 lần trong 10 phút sẽ bị khóa tạm.
+- `config.php` và tệp dữ liệu bị `.htaccess` chặn; đừng đưa `config.php` lên GitHub.
+- Góp ý của người dùng lưu trong cơ sở dữ liệu, chỉ tài khoản sửa được mới đọc.
+- Phát hiện lỗi bảo mật, xin báo riêng theo [SECURITY.md](SECURITY.md), đừng đăng công khai.
+
+## Góp ý và đóng góp
+
+- Có ý kiến hoặc gặp lỗi: dùng nút **Góp ý** trên trang, hoặc [mở một Issue](../../issues/new/choose).
+- Muốn sửa mã: xem [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Giấy phép
+
+MIT, xem [LICENSE](LICENSE).

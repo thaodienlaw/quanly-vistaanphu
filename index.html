@@ -148,7 +148,7 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:cent
   <div class="wrap">
     <div class="top-row">
       <div class="brand"><span id="orgName">The Vista An Phú</span><small>Quản lý quỹ bảo trì, quỹ vận hành và tài sản chung cư</small></div>
-      <div class="actions"><span id="who"></span><button class="btn" data-act="feedback" id="btnFeedback">Góp ý</button><button class="btn" data-act="settings" id="btnSettings" data-admin="1">Cài đặt</button><button class="btn" data-act="passwd" id="btnPw">Đổi mật khẩu</button><button class="btn ghost" data-act="logout" id="btnLogout" hidden>Đăng xuất</button></div>
+      <div class="actions"><span id="who"></span><button class="btn" data-act="feedback" id="btnFeedback">Góp ý</button><button class="btn" data-act="settings" id="btnSettings" data-admin="1">Cài đặt</button><button class="btn" data-act="passwd" id="btnPw">Đổi mật khẩu</button><button class="btn" data-act="totp" id="btnTotp" hidden>Bảo mật 2 bước</button><button class="btn ghost" data-act="logout" id="btnLogout" hidden>Đăng xuất</button></div>
     </div>
     <nav class="tabs" aria-label="Chuyên mục">
       <button data-tab="tong-quan">Tổng quan</button>
@@ -249,6 +249,10 @@ const ERR={
   bad_type:"Chỉ nhận ảnh JPG, PNG, WebP hoặc tệp PDF.",
   bad_password_format:"Mật khẩu phải từ 8 ký tự.",
   bad_password:"Mật khẩu hiện tại chưa đúng.",
+  must_change:"Bạn cần đổi mật khẩu trước khi tiếp tục.",
+  bad_code:"Mã xác thực chưa đúng hoặc đã hết hạn. Thử mã mới.",
+  same_password:"Mật khẩu mới phải khác mật khẩu cũ.",
+  totp_already:"Xác thực 2 bước đã được bật.",
   bad_file:"Tệp sao lưu không đúng định dạng.",
   plate_taken:"Biển số này đã được đăng ký (đang chờ duyệt hoặc đã duyệt).",
   bad_plate:"Biển số chưa đúng định dạng (4 đến 15 ký tự, chữ, số, dấu chấm, gạch).",
@@ -285,8 +289,9 @@ async function loadAll(){
   loaded=3;
 }
 async function loadFb(){try{fb=(await api("feedback_list")).items;render()}catch(e){fb=[];fail(e)}}
+let bks=[];
 async function loadAdmin(){
-  try{if(isAdm()){const [u,a]=await Promise.all([api("users_list"),api("audit_list")]);users=u.items;audit=a.items}else{users=[];audit=(await api("audit_list")).items}}
+  try{if(isAdm()){const [u,a,b]=await Promise.all([api("users_list"),api("audit_list"),api("backup_list")]);users=u.items;audit=a.items;bks=b.items}else{users=[];audit=(await api("audit_list")).items}}
   catch(e){users=users||[];audit=audit||[];fail(e)}
   render();
 }
@@ -356,6 +361,7 @@ function vLogin(){
   return `<form class="card login" id="loginForm"><h2>Đăng nhập</h2><p style="margin:0;color:var(--muted)">Số liệu quỹ và tài sản chỉ dành cho Ban quản trị và cư dân The Vista An Phú.</p>
   <label for="lg-user">Tên đăng nhập (Ban quản trị; cư dân để trống)<input id="lg-user" name="username" autocomplete="username" autocapitalize="none"></label>
   <label for="pw">Mật khẩu<input id="pw" name="password" type="password" autocomplete="current-password" required></label>
+  <label for="lg-code" id="lgCodeBox" hidden>Mã xác thực 6 số (ứng dụng Authenticator)<input id="lg-code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8"></label>
   <button class="btn primary" type="submit" style="justify-content:center">Đăng nhập</button>
   <div style="font-size:13px;color:var(--muted)">Chưa có mật khẩu? Liên hệ Ban quản trị, hoặc bấm “Góp ý” ở trên để gửi lời nhắn.</div></form>`;
 }
@@ -365,7 +371,7 @@ function render(){
   document.body.classList.toggle("ro",!(can("manage")||can("txn")));
   document.body.classList.toggle("noadm",!adm);
   Object.keys(CAPS).forEach(c=>document.body.classList.toggle("no-"+c,!can(c)));
-  $("#tabGopY").hidden=!can("manage");$("#tabAdm").hidden=!adm;$("#tabAudit").hidden=!(can("audit")&&!adm);$("#tabUnits").hidden=!ed;$("#tabVeh").hidden=!(ed||(me&&me.unit));$("#btnLogout").hidden=!me;
+  $("#tabGopY").hidden=!can("manage");$("#tabAdm").hidden=!adm;$("#tabAudit").hidden=!(can("audit")&&!adm);$("#tabUnits").hidden=!ed;$("#tabVeh").hidden=!(ed||(me&&me.unit));$("#btnLogout").hidden=!me;$("#btnTotp").hidden=!(me&&me.uid);
   document.querySelector("nav.tabs").hidden=!me;
   const who=$("#who");
   who.textContent=me?((me.name||(me.role==="viewer"?"Cư dân":"Ban quản trị, mật khẩu chung"))+(me.unit?" · căn "+me.unit:"")+" · "+(ROLES[me.role]||"")):"";
@@ -398,6 +404,7 @@ function notices(){
   let h="";
   const p=pendingList();
   if(p.length)h+=`<div class="banner"><span>${p.length} khoản chi đang chờ Trưởng ban duyệt (chưa tính vào số dư).</span><button class="btn small" data-act="goto-pending">Xem</button></div>`;
+  if(me&&me.uid&&!me.totp&&can("approve"))h+='<div class="banner"><span>Tài khoản duyệt chi nên bật xác thực 2 bước để an toàn hơn.</span><button class="btn small" data-act="totp">Bật ngay</button></div>';
   if(isAdm()&&!isEmpty()){
     const le=Number(state.meta.lastExport||0),days=le?Math.floor((Date.now()/1000-le)/86400):null;
     if(days===null||days>30)h+=`<div class="banner"><span>${days===null?"Chưa sao lưu dữ liệu lần nào.":"Đã "+days+" ngày chưa sao lưu dữ liệu."} Nên tải bản sao lưu mỗi tháng.</span><button class="btn small" data-tab="quan-tri">Mở mục Quản trị</button></div>`;
@@ -882,12 +889,13 @@ function vAdmin(){
   return `<div class="head-row"><h2>Quản trị</h2><button class="btn" data-act="settings">Cài đặt chung</button></div>
   <section class="card"><div class="head-row"><h3>Tài khoản Ban quản trị</h3><button class="btn small primary" data-act="user-add">+ Thêm tài khoản</button></div>
   <p class="meta" style="margin:6px 0 10px">Trưởng ban có toàn quyền. Ban quản trị duyệt chi lớn, tạo biểu quyết, xem nhật ký. Ban quản lý lo vận hành: tài sản, bảo trì, nhà thầu, báo cáo, duyệt gửi xe và tiện ích. Kế toán chỉ ghi thu chi và chứng từ. Ban kiểm tra chỉ xem, kể cả nhật ký. Người ghi khoản chi lớn không tự duyệt được khoản đó. Vai trò “Kế toán, Ban quản lý (cũ)” giữ nguyên quyền như trước. Cư dân dùng mật khẩu chung hoặc tài khoản gắn căn hộ</p>
-  ${users.length?`<div class="tablewrap"><table><thead><tr><th>Tên</th><th>Đăng nhập</th><th>Căn hộ</th><th>Quyền</th><th>Trạng thái</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.unit||"")}</td><td>${esc(ROLES[u.role]||u.role)}</td><td>${u.active?'<span class="pill good">Hoạt động</span>':'<span class="pill mute">Đã khóa</span>'}</td><td class="r"><button class="btn small" data-act="user-edit" data-id="${esc(u.id)}">Sửa</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản riêng. Hiện mọi người trong Ban quản trị dùng chung một mật khẩu.</div>'}
+  ${users.length?`<div class="tablewrap"><table><thead><tr><th>Tên</th><th>Đăng nhập</th><th>Căn hộ</th><th>Quyền</th><th>2 bước</th><th>Trạng thái</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.unit||"")}</td><td>${esc(ROLES[u.role]||u.role)}</td><td>${u.totp?'<span class="pill good">Bật</span>':'<span class="pill mute">Chưa</span>'}</td><td>${u.active?'<span class="pill good">Hoạt động</span>':'<span class="pill mute">Đã khóa</span>'}</td><td class="r"><button class="btn small" data-act="user-edit" data-id="${esc(u.id)}">Sửa</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản riêng. Hiện mọi người trong Ban quản trị dùng chung một mật khẩu.</div>'}
   <div class="actions" style="margin-top:12px"><button class="btn" data-act="viewer-pw">Đổi mật khẩu cư dân (chỉ xem)</button>
   <button class="btn" data-act="legacy-toggle">${state.meta.legacyOff?"Bật lại":"Tắt"} đăng nhập bằng mật khẩu chung của Ban quản trị</button></div>
   ${state.meta.legacyOff?'<p class="meta" style="margin:8px 0 0">Mật khẩu chung của Ban quản trị đang tắt: chỉ tài khoản riêng đăng nhập được.</p>':(admins<1?'<p class="meta" style="margin:8px 0 0">Tạo ít nhất một tài khoản Trưởng ban rồi mới tắt được mật khẩu chung.</p>':"")}</section>
   <section class="card"><h3>Sao lưu và khôi phục</h3>
-  <p class="meta" style="margin:6px 0 10px">${le?"Lần sao lưu gần nhất: "+vtime(le)+".":"Chưa sao lưu lần nào."} Nên tải bản sao lưu mỗi tháng và cất ở máy tính của bạn.</p>
+  <p class="meta" style="margin:6px 0 10px">${le?"Lần sao lưu gần nhất: "+vtime(le)+".":"Chưa sao lưu lần nào."} Hệ thống tự sao lưu cơ sở dữ liệu mỗi ngày và giữ 14 bản gần nhất trên máy chủ. Chứng từ đính kèm chưa nằm trong bản tự động, nên vẫn tải .zip mỗi tháng và cất ở máy tính của bạn.</p>
+  ${bks.length?`<div class="list" style="margin-bottom:10px">${bks.map(b=>`<div class="item"><div class="t"><strong>${vdate(b.day)}</strong><span>${Math.max(1,Math.round(b.size/1024))} KB</span></div><a class="btn small" href="api.php?a=backup_get&day=${esc(b.day)}">Tải</a></div>`).join("")}</div>`:'<p class="meta">Chưa có bản tự động nào, sẽ có ngay khi có người mở trang.</p>'}
   <div class="actions"><a class="btn primary" href="api.php?a=export">Tải dữ liệu (.json)</a><a class="btn" href="api.php?a=export_files">Tải chứng từ (.zip)</a><button class="btn danger" data-act="restore">Khôi phục từ tệp sao lưu</button></div></section>
   ${auditCard()}`;
 }
@@ -1002,6 +1010,30 @@ function settingsForm(){
   });
 }
 
+function forcePw(){
+  openModal("Đổi mật khẩu lần đầu",`<p style="margin:0">Tài khoản của bạn vừa được tạo hoặc đặt lại mật khẩu. Hãy đặt mật khẩu riêng của bạn để tiếp tục.</p><div class="fields">
+    ${F("fp-c","Mật khẩu hiện tại (do Ban quản trị cấp)",`<input id="fp-c" name="current" type="password" required autocomplete="current-password">`,"full")}
+    ${F("fp-n","Mật khẩu mới (từ 8 ký tự, khác mật khẩu cũ)",`<input id="fp-n" name="new" type="password" required minlength="8" maxlength="100" autocomplete="new-password">`,"full")}
+    ${F("fp-n2","Nhập lại mật khẩu mới",`<input id="fp-n2" name="new2" type="password" required minlength="8" autocomplete="new-password">`,"full")}
+  </div>`,async fd=>{
+    if(fd.get("new")!==fd.get("new2")){toast("Hai lần nhập mật khẩu mới chưa giống nhau.");return false}
+    try{await api("mypasswd",{current:fd.get("current"),new:fd.get("new")});me.mustChange=false;await loadAll();render();toast("Đã đổi mật khẩu.")}catch(e){fail(e);return false}
+  },"Đổi mật khẩu",true);
+}
+async function totpForm(){
+  if(me.totp){
+    openModal("Xác thực 2 bước đang bật",`<p style="margin:0">Mỗi lần đăng nhập cần thêm mã 6 số từ ứng dụng Authenticator. Nhập mật khẩu để tắt.</p><div class="fields">${F("t-pw","Mật khẩu hiện tại",`<input id="t-pw" name="password" type="password" required autocomplete="current-password">`,"full")}</div>`,async fd=>{
+      try{await api("totp_disable",{password:fd.get("password")});me.totp=false;render();toast("Đã tắt xác thực 2 bước.")}catch(e){fail(e);return false}
+    },"Tắt xác thực 2 bước");
+    return;
+  }
+  let j;try{j=await api("totp_setup",{})}catch(e){fail(e);return}
+  openModal("Bật xác thực 2 bước",`<p style="margin:0">1. Cài ứng dụng Google Authenticator, Microsoft Authenticator hoặc Authy trên điện thoại.<br>2. Chọn thêm tài khoản, nhập khóa thủ công (loại theo thời gian) với khóa dưới đây.<br>3. Nhập mã 6 số ứng dụng hiện ra.</p>
+    <div class="card" style="padding:10px;word-break:break-all;font-family:monospace;font-size:15px;user-select:all">${esc(j.secret.replace(/(.{4})/g,"$1 ").trim())}</div>
+    <div class="fields">${F("t-code","Mã 6 số",`<input id="t-code" name="code" required inputmode="numeric" maxlength="8" autocomplete="one-time-code">`,"full")}</div>`,async fd=>{
+    try{await api("totp_enable",{code:fd.get("code")});me.totp=true;render();toast("Đã bật xác thực 2 bước.")}catch(e){fail(e);return false}
+  },"Bật");
+}
 function passwdForm(){
   if(me&&me.uid){
     openModal("Đổi mật khẩu của tôi",`<div class="fields">
@@ -1036,10 +1068,11 @@ function userForm(u){
     ${F("u-role","Quyền",`<select id="u-role" name="role">${opt(["viewer","accountant","manager","board","auditor","admin","editor"].map(r=>[r,ROLES[r]]),u?u.role:"manager")}</select>`)}
     ${F("u-unit","Căn hộ (tài khoản cư dân: để biểu quyết, đăng ký xe)",`<input id="u-unit" name="unit" maxlength="20" value="${esc(u?u.unit||"":"")}" placeholder="vd: T3-301" autocapitalize="characters">`,"full")}
     ${F("u-pw",u?"Đặt lại mật khẩu (bỏ trống nếu giữ)":"Mật khẩu (từ 8 ký tự)",`<input id="u-pw" name="password" type="text" ${u?"":"required"} minlength="8" maxlength="100" autocomplete="off">`,"full")}
+    ${u&&u.totp?'<label class="check full" for="u-r2"><input id="u-r2" name="reset2fa" type="checkbox"> Tắt xác thực 2 bước của tài khoản này (khi họ mất điện thoại)</label>':""}
     ${u?'<label class="check full" for="u-act"><input id="u-act" name="active" type="checkbox"'+(u.active?" checked":"")+"> Cho phép đăng nhập</label>":""}
   </div>`,async fd=>{
     try{
-      await api("user_save",{id:u?u.id:"",name:fd.get("name"),username:fd.get("username"),role:fd.get("role"),unit:fd.get("unit"),password:fd.get("password"),active:u?!!fd.get("active"):true});
+      await api("user_save",{id:u?u.id:"",name:fd.get("name"),username:fd.get("username"),role:fd.get("role"),unit:fd.get("unit"),password:fd.get("password"),active:u?!!fd.get("active"):true,reset2fa:!!fd.get("reset2fa")});
       if(!u&&me)me.hasUsers=true;
       users=null;audit=null;render();toast(u?"Đã lưu tài khoản.":"Đã tạo tài khoản.");
     }catch(e){fail(e);return false}
@@ -1245,6 +1278,7 @@ document.addEventListener("click",async e=>{
   else if(act==="settings")settingsForm();
   else if(act==="feedback")feedbackForm();
   else if(act==="passwd")passwdForm();
+  else if(act==="totp")totpForm();
   else if(act==="viewer-pw")viewerPwForm();
   else if(act==="user-add")userForm();
   else if(act==="user-edit")userForm(users.find(u=>u.id===id));
@@ -1288,11 +1322,14 @@ document.addEventListener("submit",async e=>{
   const btn=e.target.querySelector("button");btn.disabled=true;
   const fd=new FormData(e.target);
   try{
-    me=await api("login",{username:fd.get("username"),password:fd.get("password")});
+    me=await api("login",{username:fd.get("username"),password:fd.get("password"),code:fd.get("code")});
     fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;
+    if(me.mustChange){render();forcePw();return}
     await loadAll();render();
   }catch(err){
     me=null;btn.disabled=false;
+    if(err.code==="need_totp"){const bx=$("#lgCodeBox");if(bx){bx.hidden=false;$("#lg-code").focus()}toast("Nhập mã xác thực 6 số từ ứng dụng Authenticator.");return}
+    if(err.status===401&&!$("#lgCodeBox").hidden){toast(ERR.bad_code);return}
     toast(err.status===429?"Nhập sai nhiều lần. Thử lại sau 10 phút.":err.status===401?"Tên đăng nhập hoặc mật khẩu chưa đúng.":"Không đăng nhập được. Thử lại sau.");
   }
 });
@@ -1300,8 +1337,8 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh()}
 setInterval(refresh,30000);
 (async()=>{
   render();
-  try{const j=await api("me");me=j.role?j:null;if(me)await loadAll()}catch(e){me=null}
-  ready=true;render();
+  try{const j=await api("me");me=j.role?j:null;if(me&&!me.mustChange)await loadAll()}catch(e){me=null}
+  ready=true;render();if(me&&me.mustChange)forcePw();
 })();
 </script>
 </body>

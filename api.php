@@ -39,6 +39,10 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCR
 $pdo->exec('CREATE TABLE IF NOT EXISTS hits (kind TEXT NOT NULL, ip TEXT NOT NULL, ts INTEGER NOT NULL)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS auth (role TEXT PRIMARY KEY, hash TEXT NOT NULL)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL, hash TEXT NOT NULL, active INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL)');
+try { $pdo->exec('ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFAULT 0'); } catch (Throwable $e) {}
+try { $pdo->exec('ALTER TABLE users ADD COLUMN totp_secret TEXT'); } catch (Throwable $e) {}
+try { $pdo->exec('ALTER TABLE users ADD COLUMN totp_on INTEGER NOT NULL DEFAULT 0'); } catch (Throwable $e) {}
+try { $pdo->exec('ALTER TABLE users ADD COLUMN totp_last INTEGER NOT NULL DEFAULT 0'); } catch (Throwable $e) {}
 $pdo->exec('CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, col TEXT, doc TEXT, summary TEXT, before TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, ref_col TEXT NOT NULL, ref_id TEXT NOT NULL, ts INTEGER NOT NULL, actor TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, uid TEXT, ts INTEGER NOT NULL)');
@@ -85,6 +89,53 @@ function can(?string $role, string $cap): bool {
 function needCap(?string $role, string $cap): void {
     if (!$role) out(401, ['error' => 'login']);
     if (!can($role, $cap)) out(403, ['error' => 'forbidden']);
+}
+const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+function b32enc(string $bin): string {
+    $bits = ''; foreach (str_split($bin) as $c) $bits .= str_pad(decbin(ord($c)), 8, '0', STR_PAD_LEFT);
+    $o = ''; foreach (str_split($bits, 5) as $ch) $o .= B32[bindec(str_pad($ch, 5, '0'))];
+    return $o;
+}
+function b32dec(string $s): string {
+    $bits = ''; foreach (str_split(strtoupper($s)) as $c) { $p = strpos(B32, $c); if ($p !== false) $bits .= str_pad(decbin($p), 5, '0', STR_PAD_LEFT); }
+    $o = ''; foreach (str_split($bits, 8) as $by) if (strlen($by) === 8) $o .= chr(bindec($by));
+    return $o;
+}
+function totpAt(string $secret, int $step): string {
+    $h = hash_hmac('sha1', pack('N2', 0, $step), b32dec($secret), true);
+    $o = ord($h[19]) & 15;
+    $n = ((ord($h[$o]) & 127) << 24) | (ord($h[$o + 1]) << 16) | (ord($h[$o + 2]) << 8) | ord($h[$o + 3]);
+    return str_pad((string)($n % 1000000), 6, '0', STR_PAD_LEFT);
+}
+/** Trả về bước thời gian khớp (hoặc 0), cho phép lệch ±1 bước (30 giây). */
+function totpCheck(string $secret, string $code, int $last): int {
+    $code = preg_replace('/\D/', '', $code);
+    if (strlen($code) !== 6) return 0;
+    $now = intdiv(time(), 30);
+    for ($d = -1; $d <= 1; $d++) {
+        $st = $now + $d;
+        if ($st > $last && hash_equals(totpAt($secret, $st), $code)) return $st;
+    }
+    return 0;
+}
+function secInfo(PDO $pdo): array {
+    if (empty($_SESSION['uid'])) return ['mustChange' => false, 'totp' => false];
+    $s = $pdo->prepare('SELECT must_change, totp_on FROM users WHERE id = ?'); $s->execute([$_SESSION['uid']]);
+    $r = $s->fetch(PDO::FETCH_ASSOC) ?: [];
+    return ['mustChange' => !empty($r['must_change']), 'totp' => !empty($r['totp_on'])];
+}
+function dailyBackup(PDO $pdo, string $dir): void {
+    $day = date('Y-m-d');
+    if (metaGet($pdo, 'last_backup') === $day) return;
+    metaSet($pdo, 'last_backup', $day);
+    $bd = $dir . '/backups';
+    if (!is_dir($bd)) @mkdir($bd, 0750, true);
+    $f = $bd . '/' . $day . '.sqlite';
+    if (is_file($f)) return;
+    $pdo->exec("VACUUM INTO '" . str_replace("'", "''", $f) . "'");
+    $all = glob($bd . '/*.sqlite') ?: [];
+    sort($all);
+    foreach (array_slice($all, 0, max(0, count($all) - 14)) as $old) @unlink($old);
 }
 function actor(): array {
     return ['id' => $_SESSION['uid'] ?? 'legacy', 'name' => $_SESSION['name'] ?? '(mật khẩu chung)'];
@@ -246,11 +297,13 @@ if ($method === 'POST') {
 }
 
 /* ---------- xử lý ---------- */
+if ($role && !empty($_SESSION['mc']) && !in_array($a, ['me', 'logout', 'mypasswd'], true)) out(403, ['error' => 'must_change']);
+
 switch ($a) {
 
     case 'me': {
         $hasUsers = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE active = 1')->fetchColumn() > 0;
-        out(200, ['role' => $role, 'uid' => $_SESSION['uid'] ?? null, 'name' => $_SESSION['name'] ?? null, 'unit' => $role ? myUnit($pdo) : '', 'legacy' => $role && !isset($_SESSION['uid']), 'hasUsers' => $hasUsers]);
+        out(200, ['role' => $role, 'uid' => $_SESSION['uid'] ?? null, 'name' => $_SESSION['name'] ?? null, 'unit' => $role ? myUnit($pdo) : '', 'legacy' => $role && !isset($_SESSION['uid']), 'hasUsers' => $hasUsers] + ($role ? secInfo($pdo) : []));
     }
 
     case 'login': {
@@ -263,7 +316,17 @@ switch ($a) {
         if ($uname !== '') {
             $s = $pdo->prepare('SELECT * FROM users WHERE username = ? AND active = 1'); $s->execute([$uname]);
             $u = $s->fetch(PDO::FETCH_ASSOC);
-            if ($u && $pw !== '' && password_verify($pw, $u['hash'])) $session = ['role' => $u['role'], 'uid' => $u['id'], 'name' => $u['name']];
+            if ($u && $pw !== '' && password_verify($pw, $u['hash'])) {
+                if (!empty($u['totp_on'])) {
+                    $code = (string)($body['code'] ?? '');
+                    if ($code === '') out(401, ['error' => 'need_totp']);
+                    $st = totpCheck((string)$u['totp_secret'], $code, (int)$u['totp_last']);
+                    if (!$st) { addHit($pdo, 'login', $ip); addHit($pdo, 'login', $key); out(401, ['error' => 'bad_code']); }
+                    $pdo->prepare('UPDATE users SET totp_last = ? WHERE id = ?')->execute([$st, $u['id']]);
+                }
+                $session = ['role' => $u['role'], 'uid' => $u['id'], 'name' => $u['name']];
+                if (!empty($u['must_change'])) $session['mc'] = 1;
+            }
         } else {
             $hashes = ['editor' => (string)($cfg['editor_hash'] ?? ''), 'viewer' => (string)($cfg['viewer_hash'] ?? '')];
             foreach ($pdo->query('SELECT role, hash FROM auth') as $r) $hashes[$r['role']] = $r['hash'];
@@ -276,7 +339,65 @@ switch ($a) {
         $_SESSION = [];
         foreach ($session as $k => $v) $_SESSION[$k] = $v;
         $hasUsers = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE active = 1')->fetchColumn() > 0;
-        out(200, ['role' => $session['role'], 'uid' => $session['uid'] ?? null, 'name' => $session['name'] ?? null, 'unit' => myUnit($pdo), 'legacy' => !isset($session['uid']), 'hasUsers' => $hasUsers]);
+        out(200, ['role' => $session['role'], 'uid' => $session['uid'] ?? null, 'name' => $session['name'] ?? null, 'unit' => myUnit($pdo), 'legacy' => !isset($session['uid']), 'hasUsers' => $hasUsers] + secInfo($pdo));
+    }
+
+    case 'totp_setup': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $uid = $_SESSION['uid'] ?? null; if (!$uid) out(400, ['error' => 'no_account']);
+        $s = $pdo->prepare('SELECT username, totp_on FROM users WHERE id = ?'); $s->execute([$uid]); $u = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$u) out(404, ['error' => 'not_found']);
+        if (!empty($u['totp_on'])) out(409, ['error' => 'totp_already']);
+        $sec = b32enc(random_bytes(20));
+        $pdo->prepare('UPDATE users SET totp_secret = ?, totp_last = 0 WHERE id = ?')->execute([$sec, $uid]);
+        out(200, ['secret' => $sec, 'uri' => 'otpauth://totp/' . rawurlencode('The Vista An Phu:' . $u['username']) . '?secret=' . $sec . '&issuer=' . rawurlencode('The Vista An Phu')]);
+    }
+
+    case 'totp_enable': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $uid = $_SESSION['uid'] ?? null; if (!$uid) out(400, ['error' => 'no_account']);
+        if (hits($pdo, 'login', 't:' . $uid, 600) >= 8) out(429, ['error' => 'too_many']);
+        $s = $pdo->prepare('SELECT username, totp_secret FROM users WHERE id = ?'); $s->execute([$uid]); $u = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$u || empty($u['totp_secret'])) out(400, ['error' => 'bad_request']);
+        $st = totpCheck((string)$u['totp_secret'], (string)($body['code'] ?? ''), 0);
+        if (!$st) { addHit($pdo, 'login', 't:' . $uid); out(401, ['error' => 'bad_code']); }
+        $pdo->prepare('UPDATE users SET totp_on = 1, totp_last = ? WHERE id = ?')->execute([$st, $uid]);
+        audit($pdo, 'bật xác thực 2 bước', 'users', $uid, $u['username']);
+        out(200, ['ok' => true]);
+    }
+
+    case 'totp_disable': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $uid = $_SESSION['uid'] ?? null; if (!$uid) out(400, ['error' => 'no_account']);
+        $s = $pdo->prepare('SELECT username, hash FROM users WHERE id = ?'); $s->execute([$uid]); $u = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$u || !password_verify((string)($body['password'] ?? ''), (string)$u['hash'])) out(401, ['error' => 'bad_password']);
+        $pdo->prepare('UPDATE users SET totp_on = 0, totp_secret = NULL, totp_last = 0 WHERE id = ?')->execute([$uid]);
+        audit($pdo, 'tắt xác thực 2 bước', 'users', $uid, $u['username']);
+        out(200, ['ok' => true]);
+    }
+
+    case 'backup_list': {
+        needCap($role, 'system');
+        $o = [];
+        foreach (glob($dir . '/backups/*.sqlite') ?: [] as $f) $o[] = ['day' => basename($f, '.sqlite'), 'size' => filesize($f)];
+        usort($o, fn($x, $y) => strcmp($y['day'], $x['day']));
+        out(200, ['items' => $o]);
+    }
+
+    case 'backup_get': {
+        needCap($role, 'system');
+        $day = (string)($_GET['day'] ?? '');
+        $f = $dir . '/backups/' . $day . '.sqlite';
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $day) || !is_file($f)) out(404, ['error' => 'not_found']);
+        audit($pdo, 'tải bản sao lưu', 'backup', $day, $day);
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="vistaanphu-' . $day . '.sqlite"');
+        header('Content-Length: ' . filesize($f));
+        readfile($f);
+        exit;
     }
 
     case 'logout': {
@@ -303,6 +424,7 @@ switch ($a) {
         $res['files'] = $pdo->query('SELECT id, name, mime, size, ref_col AS col, ref_id AS ref, ts FROM files ORDER BY ts')->fetchAll(PDO::FETCH_ASSOC);
         if (!can($role, 'seeall')) $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'vendors'));
         $res['meta'] = ['lastExport' => metaGet($pdo, 'last_export'), 'legacyOff' => metaGet($pdo, 'legacy_off') === '1'];
+        try { dailyBackup($pdo, $dir); } catch (Throwable $e) {}
         if (can($role, 'manage')) { try { maybeRemind($pdo); } catch (Throwable $e) {} }
         out(200, $res);
     }
@@ -437,14 +559,16 @@ switch ($a) {
         $np = (string)($body['new'] ?? '');
         if (!$h || !password_verify((string)($body['current'] ?? ''), (string)$h)) out(401, ['error' => 'bad_password']);
         if (mb_strlen($np) < 8 || mb_strlen($np) > 100) out(400, ['error' => 'bad_password_format']);
-        $pdo->prepare('UPDATE users SET hash = ? WHERE id = ?')->execute([password_hash($np, PASSWORD_DEFAULT), $uid]);
+        if (password_verify($np, (string)$h)) out(400, ['error' => 'same_password']);
+        $pdo->prepare('UPDATE users SET hash = ?, must_change = 0 WHERE id = ?')->execute([password_hash($np, PASSWORD_DEFAULT), $uid]);
+        unset($_SESSION['mc']);
         audit($pdo, 'đổi mật khẩu cá nhân');
         out(200, ['ok' => true]);
     }
 
     case 'users_list': {
         needCap($role, 'system');
-        out(200, ['items' => $pdo->query('SELECT id, username, name, role, active, created, unit FROM users ORDER BY created')->fetchAll(PDO::FETCH_ASSOC)]);
+        out(200, ['items' => $pdo->query('SELECT id, username, name, role, active, created, unit, totp_on AS totp, must_change AS mustChange FROM users ORDER BY created')->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     case 'user_save': {
@@ -465,14 +589,15 @@ switch ($a) {
             $ex = $pdo->prepare('SELECT COUNT(*) FROM users WHERE username = ?'); $ex->execute([$un]);
             if ((int)$ex->fetchColumn() > 0) out(409, ['error' => 'username_taken']);
             $nid = 'u' . bin2hex(random_bytes(6));
-            $pdo->prepare('INSERT INTO users (id, username, name, role, hash, active, created, unit) VALUES (?,?,?,?,?,?,?,?)')->execute([$nid, $un, $name, $rl, password_hash($pw, PASSWORD_DEFAULT), 1, time(), $unit]);
+            $pdo->prepare('INSERT INTO users (id, username, name, role, hash, active, created, unit, must_change) VALUES (?,?,?,?,?,?,?,?,1)')->execute([$nid, $un, $name, $rl, password_hash($pw, PASSWORD_DEFAULT), 1, time(), $unit]);
             audit($pdo, 'tạo tài khoản', 'users', $nid, "$un ($rl)");
         } else {
             $s = $pdo->prepare('SELECT * FROM users WHERE id = ?'); $s->execute([$id]);
             $u = $s->fetch(PDO::FETCH_ASSOC);
             if (!$u) out(404, ['error' => 'not_found']);
             $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ?, unit = ? WHERE id = ?')->execute([$name, $rl, $active, $unit, $id]);
-            if ($pw !== '') $pdo->prepare('UPDATE users SET hash = ? WHERE id = ?')->execute([password_hash($pw, PASSWORD_DEFAULT), $id]);
+            if ($pw !== '') $pdo->prepare('UPDATE users SET hash = ?, must_change = 1 WHERE id = ?')->execute([password_hash($pw, PASSWORD_DEFAULT), $id]);
+            if (!empty($body['reset2fa'])) { $pdo->prepare('UPDATE users SET totp_on = 0, totp_secret = NULL, totp_last = 0 WHERE id = ?')->execute([$id]); audit($pdo, 'tắt xác thực 2 bước', 'users', $id, $u['username']); }
             $admins = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE active = 1 AND role = 'admin'")->fetchColumn();
             if (metaGet($pdo, 'legacy_off') === '1' && $admins < 1) {   // tránh tự khóa mình ra ngoài
                 $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ?, unit = ? WHERE id = ?')->execute([$u['name'], $u['role'], $u['active'], $u['unit'], $id]);

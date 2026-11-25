@@ -69,3 +69,9 @@ MIT, xem [LICENSE](LICENSE).
 | Kế toán, Ban quản lý (vai trò cũ) | Giữ nguyên quyền như trước khi tách vai trò |
 
 Người ghi khoản chi lớn không tự duyệt được khoản đó. Quyền được kiểm tra ở máy chủ (`$CAPS` trong api.php), giao diện chỉ ẩn nút cho gọn.
+
+## Bảo mật tài khoản và sao lưu
+
+- Tài khoản mới tạo, hoặc được Trưởng ban đặt lại mật khẩu, bị buộc đổi mật khẩu ở lần đăng nhập đầu. Mật khẩu mới phải khác mật khẩu cấp.
+- Xác thực 2 bước (TOTP) tùy chọn cho mọi tài khoản riêng: nút "Bảo mật 2 bước" trên đầu trang, dùng Google Authenticator, Microsoft Authenticator, Authy (nhập khóa thủ công). Mỗi mã chỉ dùng được một lần. Trưởng ban tắt giúp khi người dùng mất điện thoại (Quản trị, Sửa tài khoản).
+- Tự sao lưu cơ sở dữ liệu mỗi ngày vào thư mục `backups` cạnh tệp dữ liệu (ngoài public_html), giữ 14 bản gần nhất; Trưởng ban tải ở tab Quản trị. Tệp chứng từ đính kèm vẫn tải thủ công (.zip).

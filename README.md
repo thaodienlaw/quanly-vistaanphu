@@ -22,7 +22,7 @@ Một trang `index.html` (HTML, CSS, JavaScript thuần, không cần build) và
    ```
    - `editor_hash`: mật khẩu Ban quản trị và kế toán (xem và sửa).
    - `viewer_hash`: mật khẩu cư dân (chỉ xem). Để trống nếu không cho cư dân xem.
-3. Đặt `db` trỏ tới một thư mục **ngoài** thư mục web (mặc định là `../quanly-data/`).
+3. Đặt `db` trỏ tới một thư mục **ngoài** thư mục web (trên Hostinger, mặc định nằm cạnh `public_html`).
 4. Tải các tệp `index.html`, `api.php`, `.htaccess`, `config.php` lên thư mục web.
 
 Chạy thử trên máy: `php -S 127.0.0.1:8080` rồi mở http://127.0.0.1:8080.

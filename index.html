@@ -157,7 +157,6 @@ const CATS={
 const KINDS=["Thiết bị","Máy móc","Xe","Khác"];
 const STATUSES=["Tốt","Cần theo dõi","Hỏng","Ngưng sử dụng"];
 const TABS=["tong-quan","thu-chi","tai-san","bao-tri","gop-y"];
-const REPO="https://github.com/thaodienlaw/quanly-vistaanphu";
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const nf=new Intl.NumberFormat("vi-VN");
 const money=n=>nf.format(Math.round(n||0))+" ₫";
@@ -253,7 +252,7 @@ function vLogin(){
 }
 function vFeedback(){
   if(fb===null){loadFb();return '<div class="empty">Đang tải góp ý…</div>'}
-  return `<div class="head-row"><h2>Góp ý nhận được</h2><a class="btn" href="${REPO}/issues" target="_blank" rel="noopener">Góp ý công khai trên GitHub</a></div>
+  return `<div class="head-row"><h2>Góp ý nhận được</h2></div>
   ${fb.length?'<div class="list">'+fb.map(f=>`<div class="item fb"><div class="t"><strong>${esc(f.kind||"Khác")}</strong> <span style="display:inline">· ${new Date(f.created*1000).toLocaleString("vi-VN")}${f.name?" · "+esc(f.name):""}${f.contact?" · "+esc(f.contact):""}</span><p>${esc(f.message)}</p></div><button class="btn small danger" data-act="del-fb" data-id="${f.id}">Xóa</button></div>`).join("")+"</div>":'<div class="card empty">Chưa có góp ý nào.</div>'}`;
 }
 function render(){
@@ -512,7 +511,7 @@ function feedbackForm(){
     ${F("g-name","Tên (không bắt buộc)",`<input id="g-name" name="name" maxlength="100" autocomplete="name">`)}
     ${F("g-contact","Zalo hoặc email (không bắt buộc)",`<input id="g-contact" name="contact" maxlength="120">`)}
     <div class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
-  </div><p style="margin:0;font-size:13px;color:var(--muted)">Góp ý được gửi đến Ban quản trị. Muốn thảo luận công khai hoặc tự đề xuất sửa mã nguồn, mở <a href="${REPO}/issues/new/choose" target="_blank" rel="noopener" style="color:var(--accent)">trang GitHub của dự án</a>. Đừng ghi mật khẩu hay thông tin cá nhân nhạy cảm vào góp ý.</p>`,async fd=>{
+  </div><p style="margin:0;font-size:13px;color:var(--muted)">Góp ý được gửi đến Ban quản trị. Đừng ghi mật khẩu hay thông tin cá nhân nhạy cảm vào góp ý.</p>`,async fd=>{
     try{await api("feedback",{kind:fd.get("kind"),message:fd.get("message"),name:fd.get("name"),contact:fd.get("contact"),website:fd.get("website")});toast("Cảm ơn bạn đã góp ý.")}
     catch(e){toast(e.status===429?"Bạn gửi quá nhiều góp ý. Thử lại sau một giờ.":"Chưa gửi được góp ý. Thử lại sau.");return false}
   },"Gửi góp ý");

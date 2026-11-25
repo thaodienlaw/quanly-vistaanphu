@@ -379,7 +379,7 @@ switch ($a) {
         $rl = (string)($body['role'] ?? 'editor');
         $active = !empty($body['active']) ? 1 : 0;
         $pw = (string)($body['password'] ?? '');
-        if ($name === '' || !in_array($rl, ['admin', 'editor'], true)) out(400, ['error' => 'bad_request']);
+        if ($name === '' || !in_array($rl, ['admin', 'editor', 'viewer'], true)) out(400, ['error' => 'bad_request']);
         if ($pw !== '' && (mb_strlen($pw) < 8 || mb_strlen($pw) > 100)) out(400, ['error' => 'bad_password_format']);
         if ($id === '') {
             $un = strtolower(str($body, 'username', 30));

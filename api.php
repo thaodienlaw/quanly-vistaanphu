@@ -42,6 +42,11 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, username TEXT
 $pdo->exec('CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, col TEXT, doc TEXT, summary TEXT, before TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, ref_col TEXT NOT NULL, ref_id TEXT NOT NULL, ts INTEGER NOT NULL, actor TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, uid TEXT, ts INTEGER NOT NULL)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS units (id TEXT PRIMARY KEY, code TEXT NOT NULL, block TEXT, area REAL, owner TEXT, phone TEXT, note TEXT)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS vehicles (id TEXT PRIMARY KEY, unit TEXT NOT NULL, type TEXT NOT NULL, plate TEXT NOT NULL, owner TEXT, status TEXT NOT NULL, note TEXT, created INTEGER NOT NULL, by_name TEXT)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS polls (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT, options TEXT NOT NULL, deadline TEXT, closed INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL, by_name TEXT)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS ballots (poll TEXT NOT NULL, unit TEXT NOT NULL, choice TEXT NOT NULL, ts INTEGER NOT NULL, by_name TEXT, PRIMARY KEY (poll, unit))');
+try { $pdo->exec('ALTER TABLE users ADD COLUMN unit TEXT'); } catch (Throwable $e) {}
 $pdo->exec('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
 
 $a = (string)($_GET['a'] ?? '');
@@ -60,6 +65,16 @@ function need(?string $role, int $min): void {
 }
 function actor(): array {
     return ['id' => $_SESSION['uid'] ?? 'legacy', 'name' => $_SESSION['name'] ?? '(mật khẩu chung)'];
+}
+function myUnit(PDO $pdo): string {
+    if (empty($_SESSION['uid'])) return '';
+    $s = $pdo->prepare('SELECT unit FROM users WHERE id = ? AND active = 1'); $s->execute([$_SESSION['uid']]);
+    return (string)($s->fetchColumn() ?: '');
+}
+function normUnit(string $c): string { return strtoupper(preg_replace('/\s+/', '', trim($c))); }
+function pollOpen(array $p): bool {
+    if (!empty($p['closed'])) return false;
+    return $p['deadline'] === null || $p['deadline'] === '' || $p['deadline'] >= date('Y-m-d');
 }
 function str(array $b, string $k, int $max): string {
     $v = $b[$k] ?? '';
@@ -210,7 +225,7 @@ switch ($a) {
 
     case 'me': {
         $hasUsers = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE active = 1')->fetchColumn() > 0;
-        out(200, ['role' => $role, 'uid' => $_SESSION['uid'] ?? null, 'name' => $_SESSION['name'] ?? null, 'legacy' => $role && !isset($_SESSION['uid']), 'hasUsers' => $hasUsers]);
+        out(200, ['role' => $role, 'uid' => $_SESSION['uid'] ?? null, 'name' => $_SESSION['name'] ?? null, 'unit' => $role ? myUnit($pdo) : '', 'legacy' => $role && !isset($_SESSION['uid']), 'hasUsers' => $hasUsers]);
     }
 
     case 'login': {
@@ -236,7 +251,7 @@ switch ($a) {
         $_SESSION = [];
         foreach ($session as $k => $v) $_SESSION[$k] = $v;
         $hasUsers = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE active = 1')->fetchColumn() > 0;
-        out(200, ['role' => $session['role'], 'uid' => $session['uid'] ?? null, 'name' => $session['name'] ?? null, 'legacy' => !isset($session['uid']), 'hasUsers' => $hasUsers]);
+        out(200, ['role' => $session['role'], 'uid' => $session['uid'] ?? null, 'name' => $session['name'] ?? null, 'unit' => myUnit($pdo), 'legacy' => !isset($session['uid']), 'hasUsers' => $hasUsers]);
     }
 
     case 'logout': {
@@ -387,7 +402,7 @@ switch ($a) {
 
     case 'users_list': {
         need($role, 3);
-        out(200, ['items' => $pdo->query('SELECT id, username, name, role, active, created FROM users ORDER BY created')->fetchAll(PDO::FETCH_ASSOC)]);
+        out(200, ['items' => $pdo->query('SELECT id, username, name, role, active, created, unit FROM users ORDER BY created')->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     case 'user_save': {
@@ -398,6 +413,8 @@ switch ($a) {
         $rl = (string)($body['role'] ?? 'editor');
         $active = !empty($body['active']) ? 1 : 0;
         $pw = (string)($body['password'] ?? '');
+        $unit = normUnit((string)($body['unit'] ?? ''));
+        if ($unit !== '') { $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]); if (!(int)$q->fetchColumn()) out(400, ['error' => 'bad_unit']); }
         if ($name === '' || !in_array($rl, ['admin', 'editor', 'viewer'], true)) out(400, ['error' => 'bad_request']);
         if ($pw !== '' && (mb_strlen($pw) < 8 || mb_strlen($pw) > 100)) out(400, ['error' => 'bad_password_format']);
         if ($id === '') {
@@ -406,17 +423,17 @@ switch ($a) {
             $ex = $pdo->prepare('SELECT COUNT(*) FROM users WHERE username = ?'); $ex->execute([$un]);
             if ((int)$ex->fetchColumn() > 0) out(409, ['error' => 'username_taken']);
             $nid = 'u' . bin2hex(random_bytes(6));
-            $pdo->prepare('INSERT INTO users (id, username, name, role, hash, active, created) VALUES (?,?,?,?,?,?,?)')->execute([$nid, $un, $name, $rl, password_hash($pw, PASSWORD_DEFAULT), 1, time()]);
+            $pdo->prepare('INSERT INTO users (id, username, name, role, hash, active, created, unit) VALUES (?,?,?,?,?,?,?,?)')->execute([$nid, $un, $name, $rl, password_hash($pw, PASSWORD_DEFAULT), 1, time(), $unit]);
             audit($pdo, 'tạo tài khoản', 'users', $nid, "$un ($rl)");
         } else {
             $s = $pdo->prepare('SELECT * FROM users WHERE id = ?'); $s->execute([$id]);
             $u = $s->fetch(PDO::FETCH_ASSOC);
             if (!$u) out(404, ['error' => 'not_found']);
-            $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ? WHERE id = ?')->execute([$name, $rl, $active, $id]);
+            $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ?, unit = ? WHERE id = ?')->execute([$name, $rl, $active, $unit, $id]);
             if ($pw !== '') $pdo->prepare('UPDATE users SET hash = ? WHERE id = ?')->execute([password_hash($pw, PASSWORD_DEFAULT), $id]);
             $admins = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE active = 1 AND role = 'admin'")->fetchColumn();
             if (metaGet($pdo, 'legacy_off') === '1' && $admins < 1) {   // tránh tự khóa mình ra ngoài
-                $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ? WHERE id = ?')->execute([$u['name'], $u['role'], $u['active'], $id]);
+                $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ?, unit = ? WHERE id = ?')->execute([$u['name'], $u['role'], $u['active'], $u['unit'], $id]);
                 out(409, ['error' => 'last_admin']);
             }
             audit($pdo, 'sửa tài khoản', 'users', $id, $u['username'] . ($pw !== '' ? ' (đặt lại mật khẩu)' : '') . ($active ? '' : ' (đã khóa)'));
@@ -449,6 +466,10 @@ switch ($a) {
             'files' => $pdo->query('SELECT id, name, mime, size, ref_col, ref_id, ts FROM files')->fetchAll(PDO::FETCH_ASSOC),
             'feedback' => $pdo->query('SELECT kind, message, name, contact, created FROM feedback')->fetchAll(PDO::FETCH_ASSOC),
             'comments' => $pdo->query('SELECT asset_id, name, text, ts FROM comments')->fetchAll(PDO::FETCH_ASSOC),
+            'units' => $pdo->query('SELECT * FROM units')->fetchAll(PDO::FETCH_ASSOC),
+            'vehicles' => $pdo->query('SELECT * FROM vehicles')->fetchAll(PDO::FETCH_ASSOC),
+            'polls' => $pdo->query('SELECT * FROM polls')->fetchAll(PDO::FETCH_ASSOC),
+            'ballots' => $pdo->query('SELECT * FROM ballots')->fetchAll(PDO::FETCH_ASSOC),
             'users' => $pdo->query('SELECT username, name, role, active FROM users')->fetchAll(PDO::FETCH_ASSOC),
         ];
         metaSet($pdo, 'last_export', (string)time());
@@ -493,6 +514,13 @@ switch ($a) {
         $pdo->beginTransaction();
         $pdo->exec("DELETE FROM docs WHERE col IN ('txns','assets','maints','notices','settings')");
         foreach ($clean as $d) setDoc($pdo, $d['col'], (string)$d['id'], $d['data']);
+        if (isset($body['units']) && is_array($body['units'])) {
+            $pdo->exec('DELETE FROM units'); $pdo->exec('DELETE FROM vehicles'); $pdo->exec('DELETE FROM polls'); $pdo->exec('DELETE FROM ballots');
+            foreach ($body['units'] as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO units (id, code, block, area, owner, phone, note) VALUES (?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['code'] ?? $r['id']), $r['block'] ?? '', (float)($r['area'] ?? 0), $r['owner'] ?? '', $r['phone'] ?? '', $r['note'] ?? '']);
+            foreach (($body['vehicles'] ?? []) as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO vehicles (id, unit, type, plate, owner, status, note, created, by_name) VALUES (?,?,?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['unit'] ?? ''), (string)($r['type'] ?? 'Xe máy'), (string)($r['plate'] ?? ''), $r['owner'] ?? '', (string)($r['status'] ?? 'Đã duyệt'), $r['note'] ?? '', (int)($r['created'] ?? time()), $r['by_name'] ?? '']);
+            foreach (($body['polls'] ?? []) as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO polls (id, title, body, options, deadline, closed, created, by_name) VALUES (?,?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['title'] ?? ''), $r['body'] ?? '', (string)($r['options'] ?? '[]'), $r['deadline'] ?? '', (int)($r['closed'] ?? 0), (int)($r['created'] ?? time()), $r['by_name'] ?? '']);
+            foreach (($body['ballots'] ?? []) as $r) if (is_array($r) && !empty($r['poll'])) $pdo->prepare('INSERT OR REPLACE INTO ballots (poll, unit, choice, ts, by_name) VALUES (?,?,?,?,?)')->execute([(string)$r['poll'], (string)($r['unit'] ?? ''), (string)($r['choice'] ?? ''), (int)($r['ts'] ?? time()), $r['by_name'] ?? '']);
+        }
         $pdo->commit();
         audit($pdo, 'khôi phục từ bản sao lưu', '', '', count($clean) . ' dòng dữ liệu');
         out(200, ['ok' => true, 'count' => count($clean)]);
@@ -536,6 +564,221 @@ switch ($a) {
         need($role, 2);
         $pdo->prepare('DELETE FROM comments WHERE id = ?')->execute([(int)($body['id'] ?? 0)]);
         audit($pdo, 'xóa bình luận', 'comments', (string)(int)($body['id'] ?? 0));
+        out(200, ['ok' => true]);
+    }
+
+
+    /* ----- căn hộ, gửi xe, biểu quyết ----- */
+    case 'units_list': {
+        need($role, 2);
+        out(200, ['items' => $pdo->query('SELECT id, code, block, area, owner, phone, note FROM units ORDER BY code')->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
+    case 'unit_save': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 2);
+        $code = normUnit(str($body, 'code', 20));
+        if (!preg_match('/^[A-Z0-9._\/-]{1,20}$/', $code)) out(400, ['error' => 'bad_request']);
+        $pdo->prepare('INSERT INTO units (id, code, block, area, owner, phone, note) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET block = excluded.block, area = excluded.area, owner = excluded.owner, phone = excluded.phone, note = excluded.note')
+            ->execute([$code, $code, str($body, 'block', 20), max(0, (float)($body['area'] ?? 0)), str($body, 'owner', 100), str($body, 'phone', 30), str($body, 'note', 300)]);
+        audit($pdo, 'lưu căn hộ', 'units', $code, $code);
+        out(200, ['ok' => true]);
+    }
+
+    case 'units_import': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 3);
+        $rows = $body['rows'] ?? null;
+        if (!is_array($rows) || count($rows) > 2000) out(400, ['error' => 'bad_request']);
+        $n = 0;
+        $pdo->beginTransaction();
+        foreach ($rows as $r) {
+            if (!is_array($r)) continue;
+            $code = normUnit(mb_substr((string)($r['code'] ?? ''), 0, 20));
+            if (!preg_match('/^[A-Z0-9._\/-]{1,20}$/', $code)) continue;
+            $pdo->prepare('INSERT INTO units (id, code, block, area, owner, phone, note) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET area = excluded.area, owner = excluded.owner, phone = excluded.phone')
+                ->execute([$code, $code, mb_substr((string)($r['block'] ?? ''), 0, 20), max(0, (float)($r['area'] ?? 0)), mb_substr((string)($r['owner'] ?? ''), 0, 100), mb_substr((string)($r['phone'] ?? ''), 0, 30), '']);
+            $n++;
+        }
+        $pdo->commit();
+        audit($pdo, 'nhập danh sách căn hộ', 'units', '', "$n căn");
+        out(200, ['ok' => true, 'count' => $n]);
+    }
+
+    case 'unit_del': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 3);
+        $id = normUnit((string)($body['id'] ?? ''));
+        $pdo->prepare('DELETE FROM units WHERE id = ?')->execute([$id]);
+        $pdo->prepare("UPDATE users SET unit = '' WHERE unit = ?")->execute([$id]);
+        audit($pdo, 'xóa căn hộ', 'units', $id, $id);
+        out(200, ['ok' => true]);
+    }
+
+    case 'my_unit': {
+        need($role, 1);
+        $u = myUnit($pdo);
+        if ($u === '') out(200, ['unit' => null]);
+        $s = $pdo->prepare('SELECT id, code, block, area, owner FROM units WHERE id = ?'); $s->execute([$u]);
+        out(200, ['unit' => $s->fetch(PDO::FETCH_ASSOC) ?: null]);
+    }
+
+    case 'vehicles_list': {
+        need($role, 1);
+        if ($RANK[$role] >= 2) { $rows = $pdo->query('SELECT * FROM vehicles ORDER BY unit, created')->fetchAll(PDO::FETCH_ASSOC); }
+        else {
+            $u = myUnit($pdo);
+            if ($u === '') out(200, ['items' => []]);
+            $s = $pdo->prepare('SELECT * FROM vehicles WHERE unit = ? ORDER BY created'); $s->execute([$u]);
+            $rows = $s->fetchAll(PDO::FETCH_ASSOC);
+        }
+        out(200, ['items' => $rows]);
+    }
+
+    case 'vehicle_save': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $editor = $RANK[$role] >= 2;
+        $unit = $editor ? normUnit((string)($body['unit'] ?? '')) : myUnit($pdo);
+        if ($unit === '') out(403, ['error' => 'no_unit']);
+        $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]);
+        if (!(int)$q->fetchColumn()) out(400, ['error' => 'bad_unit']);
+        $type = in_array($body['type'] ?? '', ['Xe máy', 'Ô tô', 'Xe đạp', 'Xe điện'], true) ? $body['type'] : 'Xe máy';
+        $plate = strtoupper(preg_replace('/\s+/', '', str($body, 'plate', 20)));
+        if ($type !== 'Xe đạp' && !preg_match('/^[A-Z0-9.\-]{4,15}$/', $plate)) out(400, ['error' => 'bad_plate']);
+        if ($type === 'Xe đạp' && $plate === '') $plate = 'XE-DAP';
+        $id = (string)($body['id'] ?? '');
+        $old = null;
+        if ($id !== '') { $s = $pdo->prepare('SELECT * FROM vehicles WHERE id = ?'); $s->execute([$id]); $old = $s->fetch(PDO::FETCH_ASSOC); if (!$old) out(404, ['error' => 'not_found']); }
+        if ($old && !$editor && ($old['unit'] !== $unit || $old['status'] !== 'Chờ duyệt')) out(403, ['error' => 'forbidden']);
+        if ($plate !== 'XE-DAP') { $d = $pdo->prepare("SELECT COUNT(*) FROM vehicles WHERE plate = ? AND status IN ('Chờ duyệt','Đã duyệt') AND id <> ?"); $d->execute([$plate, $id]); if ((int)$d->fetchColumn() > 0) out(409, ['error' => 'plate_taken']); }
+        $who = actor();
+        $status = $editor ? (in_array($body['status'] ?? '', ['Chờ duyệt', 'Đã duyệt', 'Từ chối', 'Ngừng'], true) ? $body['status'] : ($old['status'] ?? 'Đã duyệt')) : 'Chờ duyệt';
+        if ($old) {
+            $pdo->prepare('UPDATE vehicles SET unit = ?, type = ?, plate = ?, owner = ?, status = ?, note = ? WHERE id = ?')->execute([$unit, $type, $plate, str($body, 'owner', 100), $status, str($body, 'note', 200), $id]);
+        } else {
+            $id = 'v' . bin2hex(random_bytes(5));
+            $pdo->prepare('INSERT INTO vehicles (id, unit, type, plate, owner, status, note, created, by_name) VALUES (?,?,?,?,?,?,?,?,?)')->execute([$id, $unit, $type, $plate, str($body, 'owner', 100), $status, str($body, 'note', 200), time(), $who['name']]);
+        }
+        audit($pdo, $old ? 'sửa xe gửi' : 'đăng ký xe gửi', 'vehicles', $id, "$unit · $type $plate ($status)");
+        out(200, ['ok' => true, 'id' => $id]);
+    }
+
+    case 'vehicle_status': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 2);
+        $st = (string)($body['status'] ?? '');
+        if (!in_array($st, ['Chờ duyệt', 'Đã duyệt', 'Từ chối', 'Ngừng'], true)) out(400, ['error' => 'bad_request']);
+        $id = (string)($body['id'] ?? '');
+        $pdo->prepare('UPDATE vehicles SET status = ? WHERE id = ?')->execute([$st, $id]);
+        audit($pdo, 'đổi trạng thái xe gửi', 'vehicles', $id, $st);
+        out(200, ['ok' => true]);
+    }
+
+    case 'vehicle_del': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $id = (string)($body['id'] ?? '');
+        $s = $pdo->prepare('SELECT * FROM vehicles WHERE id = ?'); $s->execute([$id]);
+        $v = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$v) out(200, ['ok' => true]);
+        if ($RANK[$role] < 2 && ($v['unit'] !== myUnit($pdo) || $v['status'] !== 'Chờ duyệt')) out(403, ['error' => 'forbidden']);
+        $pdo->prepare('DELETE FROM vehicles WHERE id = ?')->execute([$id]);
+        audit($pdo, 'xóa xe gửi', 'vehicles', $id, $v['unit'] . ' · ' . $v['type'] . ' ' . $v['plate']);
+        out(200, ['ok' => true]);
+    }
+
+    case 'polls_list': {
+        need($role, 1);
+        $editor = $RANK[$role] >= 2;
+        $mine = myUnit($pdo);
+        $totUnits = (int)$pdo->query('SELECT COUNT(*) FROM units')->fetchColumn();
+        $totArea = (float)$pdo->query('SELECT COALESCE(SUM(area),0) FROM units')->fetchColumn();
+        $items = [];
+        foreach ($pdo->query('SELECT * FROM polls ORDER BY created DESC')->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            $opts = json_decode($p['options'], true) ?: [];
+            $open = pollOpen($p);
+            $tally = array_fill_keys($opts, ['units' => 0, 'area' => 0.0]);
+            $voted = 0; $votedArea = 0.0;
+            foreach ($pdo->query("SELECT b.choice, COALESCE(u.area,0) AS area FROM ballots b LEFT JOIN units u ON u.id = b.unit WHERE b.poll = " . $pdo->quote($p['id'])) as $b) {
+                $voted++; $votedArea += (float)$b['area'];
+                if (isset($tally[$b['choice']])) { $tally[$b['choice']]['units']++; $tally[$b['choice']]['area'] += (float)$b['area']; }
+            }
+            $myChoice = null;
+            if ($mine !== '') { $q = $pdo->prepare('SELECT choice FROM ballots WHERE poll = ? AND unit = ?'); $q->execute([$p['id'], $mine]); $myChoice = $q->fetchColumn() ?: null; }
+            $show = $editor || !$open;
+            $items[] = ['id' => $p['id'], 'title' => $p['title'], 'body' => $p['body'], 'options' => $opts, 'deadline' => $p['deadline'], 'closed' => (int)$p['closed'], 'open' => $open, 'created' => (int)$p['created'], 'byName' => $p['by_name'],
+                'voted' => $voted, 'votedArea' => $votedArea, 'tally' => $show ? $tally : null, 'myChoice' => $myChoice];
+        }
+        out(200, ['items' => $items, 'myUnit' => $mine, 'totalUnits' => $totUnits, 'totalArea' => $totArea]);
+    }
+
+    case 'poll_save': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 3);
+        $title = str($body, 'title', 200);
+        $opts = [];
+        foreach ((array)($body['options'] ?? []) as $o) { $o = mb_substr(trim((string)$o), 0, 100); if ($o !== '' && !in_array($o, $opts, true)) $opts[] = $o; }
+        $dl = (string)($body['deadline'] ?? '');
+        if ($title === '' || count($opts) < 2 || count($opts) > 8 || ($dl !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dl))) out(400, ['error' => 'bad_request']);
+        $id = (string)($body['id'] ?? '');
+        $who = actor();
+        if ($id !== '') {
+            $has = $pdo->prepare('SELECT COUNT(*) FROM ballots WHERE poll = ?'); $has->execute([$id]);
+            if ((int)$has->fetchColumn() > 0) $pdo->prepare('UPDATE polls SET title = ?, body = ?, deadline = ? WHERE id = ?')->execute([$title, str($body, 'body', 3000), $dl, $id]);
+            else $pdo->prepare('UPDATE polls SET title = ?, body = ?, options = ?, deadline = ? WHERE id = ?')->execute([$title, str($body, 'body', 3000), json_encode($opts, JSON_UNESCAPED_UNICODE), $dl, $id]);
+            audit($pdo, 'sửa nội dung biểu quyết', 'polls', $id, $title);
+        } else {
+            $id = 'p' . bin2hex(random_bytes(5));
+            $pdo->prepare('INSERT INTO polls (id, title, body, options, deadline, closed, created, by_name) VALUES (?,?,?,?,?,?,?,?)')->execute([$id, $title, str($body, 'body', 3000), json_encode($opts, JSON_UNESCAPED_UNICODE), $dl, 0, time(), $who['name']]);
+            audit($pdo, 'tạo biểu quyết', 'polls', $id, $title);
+        }
+        out(200, ['ok' => true, 'id' => $id]);
+    }
+
+    case 'poll_close': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 3);
+        $id = (string)($body['id'] ?? '');
+        $pdo->prepare('UPDATE polls SET closed = ? WHERE id = ?')->execute([!empty($body['closed']) ? 1 : 0, $id]);
+        audit($pdo, !empty($body['closed']) ? 'chốt biểu quyết' : 'mở lại biểu quyết', 'polls', $id);
+        out(200, ['ok' => true]);
+    }
+
+    case 'poll_del': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 3);
+        $id = (string)($body['id'] ?? '');
+        $pdo->prepare('DELETE FROM ballots WHERE poll = ?')->execute([$id]);
+        $pdo->prepare('DELETE FROM polls WHERE id = ?')->execute([$id]);
+        audit($pdo, 'xóa biểu quyết', 'polls', $id);
+        out(200, ['ok' => true]);
+    }
+
+    case 'ballots_list': {
+        need($role, 2);
+        $s = $pdo->prepare('SELECT b.unit, b.choice, b.ts, b.by_name, u.area FROM ballots b LEFT JOIN units u ON u.id = b.unit WHERE b.poll = ? ORDER BY b.unit');
+        $s->execute([(string)($_GET['poll'] ?? '')]);
+        out(200, ['items' => $s->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
+    case 'ballot_cast': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $editor = $RANK[$role] >= 2;
+        $unit = $editor ? normUnit((string)($body['unit'] ?? '')) : myUnit($pdo);
+        if ($unit === '') out(403, ['error' => 'no_unit']);
+        $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]);
+        if (!(int)$q->fetchColumn()) out(400, ['error' => 'bad_unit']);
+        $s = $pdo->prepare('SELECT * FROM polls WHERE id = ?'); $s->execute([(string)($body['poll'] ?? '')]);
+        $p = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$p) out(404, ['error' => 'not_found']);
+        if (!pollOpen($p)) out(409, ['error' => 'poll_closed']);
+        $choice = (string)($body['choice'] ?? '');
+        if (!in_array($choice, json_decode($p['options'], true) ?: [], true)) out(400, ['error' => 'bad_request']);
+        $who = actor();
+        $pdo->prepare('INSERT INTO ballots (poll, unit, choice, ts, by_name) VALUES (?,?,?,?,?) ON CONFLICT(poll, unit) DO UPDATE SET choice = excluded.choice, ts = excluded.ts, by_name = excluded.by_name')->execute([$p['id'], $unit, $choice, time(), $who['name']]);
+        audit($pdo, $editor ? 'nhập phiếu biểu quyết' : 'biểu quyết', 'polls', $p['id'], $p['title'] . ' · căn ' . $unit . ' · ' . $choice);
         out(200, ['ok' => true]);
     }
 

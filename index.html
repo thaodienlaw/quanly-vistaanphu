@@ -156,6 +156,9 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:cent
       <button data-tab="thu-chi">Thu chi</button>
       <button data-tab="tai-san">Tài sản</button>
       <button data-tab="bao-tri">Bảo trì</button>
+      <button data-tab="can-ho" id="tabUnits" hidden>Căn hộ</button>
+      <button data-tab="gui-xe" id="tabVeh" hidden>Gửi xe</button>
+      <button data-tab="bieu-quyet">Biểu quyết</button>
       <button data-tab="bao-cao">Báo cáo</button>
       <button data-tab="gop-y" id="tabGopY" hidden>Góp ý nhận được</button>
       <button data-tab="quan-tri" id="tabAdm" hidden>Quản trị</button>
@@ -180,7 +183,9 @@ const MKINDS=["Bảo trì","Sửa chữa","Kiểm định","Sử dụng","Đề 
 const NTYPES=["Thông báo","Kế hoạch ngày","Kế hoạch tháng","Kế hoạch năm"];
 const NSTAT=["Dự kiến","Đang thực hiện","Hoàn thành"];
 const ROLES={admin:"Trưởng ban (toàn quyền)",editor:"Kế toán, Ban quản lý (nhập liệu)",viewer:"Cư dân (chỉ xem)"};
-const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","bao-cao","gop-y","quan-tri"];
+const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","can-ho","gui-xe","bieu-quyet","bao-cao","gop-y","quan-tri"];
+const VTYPES=["Xe máy","Ô tô","Xe điện","Xe đạp"];
+const VSTAT=["Chờ duyệt","Đã duyệt","Từ chối","Ngừng"];
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const nf=new Intl.NumberFormat("vi-VN");
 const money=n=>nf.format(Math.round(n||0))+" ₫";
@@ -201,9 +206,11 @@ function opt(list,sel,all){return (all?`<option value="">${all}</option>`:"")+li
 
 /* ---------- dữ liệu và kết nối ---------- */
 let state={txns:[],assets:[],maints:[],notices:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};
-let me=null, ready=false, loaded=0, fb=null, users=null, audit=null;
+let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={};
 let filt={
   notice:{type:""},
+  unit:{q:""},
+  veh:{status:"",type:"",q:""},
   txn:{fund:"",type:"",month:"",q:"",status:""},
   asset:{kind:"",q:""},
   maint:{asset:""},
@@ -232,7 +239,12 @@ const ERR={
   bad_type:"Chỉ nhận ảnh JPG, PNG, WebP hoặc tệp PDF.",
   bad_password_format:"Mật khẩu phải từ 8 ký tự.",
   bad_password:"Mật khẩu hiện tại chưa đúng.",
-  bad_file:"Tệp sao lưu không đúng định dạng."
+  bad_file:"Tệp sao lưu không đúng định dạng.",
+  plate_taken:"Biển số này đã được đăng ký (đang chờ duyệt hoặc đã duyệt).",
+  bad_plate:"Biển số chưa đúng định dạng (4 đến 15 ký tự, chữ, số, dấu chấm, gạch).",
+  no_unit:"Tài khoản của bạn chưa gắn với căn hộ. Hãy nhờ Ban quản trị gắn căn hộ.",
+  bad_unit:"Căn hộ này chưa có trong danh sách căn hộ.",
+  poll_closed:"Biểu quyết này đã đóng."
 };
 function fail(e){
   if(e&&e.status===401&&e.code==="login"){me=null;render();toast("Phiên đăng nhập đã hết. Hãy đăng nhập lại.");return}
@@ -321,6 +333,8 @@ function curTab(){
   if(!TABS.includes(h))return "tong-quan";
   if(h==="gop-y"&&!isEd())return "tong-quan";
   if(h==="quan-tri"&&!isAdm())return "tong-quan";
+  if(h==="can-ho"&&!isEd())return "tong-quan";
+  if(h==="gui-xe"&&!isEd()&&!(me&&me.unit))return "tong-quan";
   return h;
 }
 function vLogin(){
@@ -335,10 +349,10 @@ function render(){
   const ed=isEd(),adm=isAdm();
   document.body.classList.toggle("ro",!ed);
   document.body.classList.toggle("noadm",!adm);
-  $("#tabGopY").hidden=!ed;$("#tabAdm").hidden=!adm;$("#btnLogout").hidden=!me;
+  $("#tabGopY").hidden=!ed;$("#tabAdm").hidden=!adm;$("#tabUnits").hidden=!ed;$("#tabVeh").hidden=!(ed||(me&&me.unit));$("#btnLogout").hidden=!me;
   document.querySelector("nav.tabs").hidden=!me;
   const who=$("#who");
-  who.textContent=me?((me.name||(me.role==="viewer"?"Cư dân":"Ban quản trị, mật khẩu chung"))+" · "+(ROLES[me.role]||"")):"";
+  who.textContent=me?((me.name||(me.role==="viewer"?"Cư dân":"Ban quản trị, mật khẩu chung"))+(me.unit?" · căn "+me.unit:"")+" · "+(ROLES[me.role]||"")):"";
   const tab=curTab();
   document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===tab?"page":"false"));
   $("#orgName").textContent=state.settings.name||"The Vista An Phú";
@@ -348,7 +362,7 @@ function render(){
   if(loaded<3){v.innerHTML='<div class="empty">Đang tải dữ liệu…</div>';return}
   let html="";
   if(hasSample()&&adm)html+='<div class="banner info"><span>Đang hiển thị dữ liệu mẫu để bạn xem thử cách dùng.</span><button class="btn small" data-act="clear-sample">Xóa dữ liệu mẫu</button></div>';
-  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"thu-chi":vTxns,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"quan-tri":vAdmin})[tab]();
+  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"thu-chi":vTxns,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"quan-tri":vAdmin})[tab]();
   v.innerHTML=html;
   if(keep){const el=document.getElementById(keep.id);if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e)}catch(e){}}}
 }
@@ -543,6 +557,102 @@ function assetDetail(id){
   drawFiles();drawComments();
 }
 
+/* ---------- căn hộ, gửi xe, biểu quyết ---------- */
+async function loadUnits(){try{units=(await api("units_list")).items}catch(e){units=[];fail(e)}render()}
+async function loadVeh(){
+  try{vehs=(await api("vehicles_list")).items;if(isEd()&&units===null)units=(await api("units_list")).items}catch(e){vehs=vehs||[];fail(e)}
+  render();
+}
+async function loadPolls(){try{polls=await api("polls_list");if(isEd()&&units===null)units=(await api("units_list")).items}catch(e){polls={items:[],myUnit:"",totalUnits:0,totalArea:0};fail(e)}render()}
+const fnum=n=>new Intl.NumberFormat("vi-VN",{maximumFractionDigits:1}).format(n||0);
+
+function vUnits(){
+  if(units===null){loadUnits();if(vehs===null)api("vehicles_list").then(j=>{vehs=j.items;render()}).catch(()=>{});return '<div class="empty">Đang tải…</div>'}
+  const q=(filt.unit.q||"").trim().toLowerCase();
+  const rows=units.filter(u=>!q||[u.code,u.owner,u.phone,u.block].join(" ").toLowerCase().includes(q));
+  const nv=c=>(vehs||[]).filter(v=>v.unit===c&&v.status==="Đã duyệt").length;
+  return `<div class="head-row"><h2>Căn hộ</h2><div class="actions"><button class="btn" data-act="units-import" data-admin="1">Nhập danh sách</button><button class="btn primary" data-act="unit-new">+ Thêm căn hộ</button></div></div>
+  <div class="banner info">Mục này có tên và số điện thoại chủ hộ, chỉ Ban quản trị và Ban quản lý thấy. Cư dân không xem được.</div>
+  <div class="summary num"><span>${units.length} căn</span><span>Tổng diện tích: <b>${fnum(sum(units,u=>u.area))} m²</b></span></div>
+  <div class="filters"><label>Tìm kiếm<input id="fu-q" type="search" data-f="unit.q" data-live="1" value="${esc(filt.unit.q||"")}" placeholder="Mã căn, chủ hộ, số điện thoại"></label></div>
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Căn hộ</th><th>Khối</th><th class="r">Diện tích (m²)</th><th>Chủ hộ</th><th>Điện thoại</th><th class="r">Xe đã duyệt</th><th></th></tr></thead><tbody>${rows.map(u=>`<tr><td><strong>${esc(u.code)}</strong></td><td>${esc(u.block||"")}</td><td class="r num">${u.area?fnum(u.area):""}</td><td>${esc(u.owner||"")}</td><td>${esc(u.phone||"")}</td><td class="r num">${nv(u.id)}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="unit-edit" data-id="${esc(u.id)}">Sửa</button><button class="btn small danger" data-act="unit-remove" data-id="${esc(u.id)}" data-admin="1">Xóa</button></div></td></tr>`).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có căn hộ. Bấm “Nhập danh sách” để dán nhanh cả tòa, hoặc “Thêm căn hộ”.</div>'}`;
+}
+function unitForm(u){
+  const cur=u||{code:"",block:"",area:"",owner:"",phone:"",note:""};
+  openModal(u?"Sửa căn hộ":"Thêm căn hộ",`<div class="fields">
+    ${F("cu-code","Mã căn hộ",`<input id="cu-code" name="code" required maxlength="20" ${u?"readonly":""} value="${esc(cur.code)}" placeholder="vd: T3-301" autocapitalize="characters">`)}
+    ${F("cu-block","Khối, tòa",`<input id="cu-block" name="block" maxlength="20" value="${esc(cur.block||"")}">`)}
+    ${F("cu-area","Diện tích (m²)",`<input id="cu-area" name="area" type="number" min="0" step="0.1" value="${esc(cur.area||"")}">`)}
+    ${F("cu-phone","Điện thoại chủ hộ",`<input id="cu-phone" name="phone" maxlength="30" value="${esc(cur.phone||"")}">`)}
+    ${F("cu-owner","Chủ hộ",`<input id="cu-owner" name="owner" maxlength="100" value="${esc(cur.owner||"")}">`,"full")}
+    ${F("cu-note","Ghi chú",`<textarea id="cu-note" name="note" maxlength="300">${esc(cur.note||"")}</textarea>`,"full")}
+  </div>`,async fd=>{
+    try{await api("unit_save",{code:fd.get("code"),block:fd.get("block"),area:num(fd.get("area")),owner:fd.get("owner"),phone:fd.get("phone"),note:fd.get("note")});units=null;render()}catch(e){fail(e);return false}
+  });
+}
+function unitsImportForm(){
+  openModal("Nhập danh sách căn hộ",`<div class="fields">${F("ui-t","Dán danh sách, mỗi dòng một căn: mã căn, diện tích, chủ hộ, điện thoại",`<textarea id="ui-t" name="text" rows="10" required placeholder="T3-301, 78.5, Nguyễn Văn A, 0901234567\nT3-302, 65, Trần Thị B, 0912345678"></textarea>`,"full")}</div><p style="margin:0;font-size:13px;color:var(--muted)">Căn đã có sẽ được cập nhật diện tích, chủ hộ, điện thoại. Chủ hộ và điện thoại có thể để trống. Có thể dán trực tiếp từ Excel (các cột cách nhau bằng tab).</p>`,async fd=>{
+    const rows=fd.get("text").split(/\r?\n/).map(l=>l.split(/\t|,|;/).map(x=>x.trim())).filter(c=>c[0]).map(c=>({code:c[0],area:num((c[1]||"").replace(",",".")),owner:c[2]||"",phone:c[3]||""}));
+    if(!rows.length){toast("Chưa có dòng nào hợp lệ.");return false}
+    try{const j=await api("units_import",{rows});units=null;render();toast("Đã nhập "+j.count+" căn hộ.")}catch(e){fail(e);return false}
+  },"Nhập");
+}
+
+function vVehicles(){
+  if(vehs===null||(isEd()&&units===null)){loadVeh();return '<div class="empty">Đang tải…</div>'}
+  const ed=isEd(),f=filt.veh,q=(f.q||"").trim().toLowerCase();
+  const rows=vehs.filter(v=>(!f.status||v.status===f.status)&&(!f.type||v.type===f.type)&&(!q||[v.unit,v.plate,v.owner].join(" ").toLowerCase().includes(q)));
+  const pend=vehs.filter(v=>v.status==="Chờ duyệt").length;
+  const cls=st=>st==="Đã duyệt"?"good":st==="Chờ duyệt"?"warn":st==="Từ chối"?"bad":"mute";
+  return `<div class="head-row"><h2>${ed?"Đăng ký gửi xe":"Xe gửi của căn "+esc(me.unit)}</h2><button class="btn primary" data-act="veh-new">+ Đăng ký xe</button></div>
+  <div class="banner info">${ed?"Biển số và tên chủ xe chỉ Ban quản trị, Ban quản lý thấy. Mỗi cư dân chỉ thấy xe của căn mình.":"Xe bạn đăng ký sẽ chờ Ban quản lý duyệt. Bạn xóa được xe đang chờ duyệt."}</div>
+  ${ed?`<div class="summary num"><span>${vehs.length} xe</span><span>Đã duyệt: <b>${vehs.filter(v=>v.status==="Đã duyệt").length}</b></span><span>Chờ duyệt: <b>${pend}</b></span><span>Ô tô: <b>${vehs.filter(v=>v.type==="Ô tô"&&v.status==="Đã duyệt").length}</b></span><span>Xe máy: <b>${vehs.filter(v=>v.type==="Xe máy"&&v.status==="Đã duyệt").length}</b></span></div>
+  <div class="filters"><label>Trạng thái<select id="fv-st" data-f="veh.status">${opt(VSTAT,f.status,"Tất cả")}</select></label><label>Loại xe<select id="fv-ty" data-f="veh.type">${opt(VTYPES,f.type,"Tất cả")}</select></label><label>Tìm kiếm<input id="fv-q" type="search" data-f="veh.q" data-live="1" value="${esc(f.q||"")}" placeholder="Căn hộ, biển số, chủ xe"></label></div>`:""}
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Căn hộ</th><th>Loại</th><th>Biển số</th><th>Chủ xe</th><th>Trạng thái</th><th></th></tr></thead><tbody>${rows.map(v=>`<tr><td><strong>${esc(v.unit)}</strong></td><td>${esc(v.type)}</td><td class="num">${esc(v.plate==="XE-DAP"?"":v.plate)}</td><td>${esc(v.owner||"")}${v.note?`<span class="meta">${esc(v.note)}</span>`:""}</td><td><span class="pill ${cls(v.status)}">${esc(v.status)}</span></td><td class="r"><div class="actions" style="justify-content:flex-end">${ed?`${v.status!=="Đã duyệt"?`<button class="btn small primary" data-act="veh-status" data-id="${esc(v.id)}" data-st="Đã duyệt">Duyệt</button>`:""}${v.status==="Chờ duyệt"?`<button class="btn small" data-act="veh-status" data-id="${esc(v.id)}" data-st="Từ chối">Từ chối</button>`:""}${v.status==="Đã duyệt"?`<button class="btn small" data-act="veh-status" data-id="${esc(v.id)}" data-st="Ngừng">Ngừng</button>`:""}<button class="btn small" data-act="veh-edit" data-id="${esc(v.id)}">Sửa</button>`:""}${ed||v.status==="Chờ duyệt"?`<button class="btn small danger" data-act="veh-remove" data-id="${esc(v.id)}">Xóa</button>`:""}</div></td></tr>`).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có xe nào được đăng ký.</div>'}`;
+}
+function vehForm(v){
+  const ed=isEd();
+  const cur=v||{unit:me.unit||"",type:"Xe máy",plate:"",owner:"",note:"",status:"Đã duyệt"};
+  openModal(v?"Sửa xe gửi":"Đăng ký xe gửi",`<div class="fields">
+    ${ed?F("v-unit","Căn hộ",`<input id="v-unit" name="unit" required list="ulist" value="${esc(cur.unit)}" autocapitalize="characters"><datalist id="ulist">${(units||[]).map(u=>`<option value="${esc(u.code)}">`).join("")}</datalist>`):""}
+    ${F("v-type","Loại xe",`<select id="v-type" name="type">${opt(VTYPES,cur.type)}</select>`)}
+    ${F("v-plate","Biển số (xe đạp để trống)",`<input id="v-plate" name="plate" maxlength="15" value="${esc(cur.plate==="XE-DAP"?"":cur.plate)}" autocapitalize="characters" placeholder="vd: 59A1-123.45">`)}
+    ${F("v-owner","Tên chủ xe",`<input id="v-owner" name="owner" maxlength="100" value="${esc(cur.owner||"")}">`,"full")}
+    ${F("v-note","Ghi chú (màu xe, hãng xe)",`<input id="v-note" name="note" maxlength="200" value="${esc(cur.note||"")}">`,"full")}
+    ${ed?F("v-st","Trạng thái",`<select id="v-st" name="status">${opt(VSTAT,cur.status)}</select>`,"full"):""}
+  </div>`,async fd=>{
+    try{await api("vehicle_save",{id:v?v.id:"",unit:fd.get("unit")||"",type:fd.get("type"),plate:fd.get("plate"),owner:fd.get("owner"),note:fd.get("note"),status:fd.get("status")||""});vehs=null;render();if(!ed)toast("Đã gửi đăng ký, chờ Ban quản lý duyệt.")}catch(e){fail(e);return false}
+  });
+}
+
+const polls_unit=()=>(me&&me.unit)||"";
+function pollBlock(p){
+  const ed=isEd(),adm=isAdm(),myU=polls.myUnit;
+  const tot=polls.totalUnits,totA=polls.totalArea;
+  const st=p.closed?'<span class="pill mute">Đã chốt</span>':p.open?'<span class="pill good">Đang mở</span>':'<span class="pill mute">Hết hạn</span>';
+  const res=p.tally?`<div style="display:grid;gap:8px;margin-top:10px">${p.options.map(o=>{const t=p.tally[o]||{units:0,area:0},pc=p.voted?Math.round(t.units/p.voted*100):0;return `<div><div style="display:flex;justify-content:space-between;gap:8px;font-size:14px"><span>${esc(o)}${p.myChoice===o?" (căn bạn chọn)":""}</span><span class="num">${t.units} căn · ${fnum(t.area)} m² · ${pc}%</span></div><div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden"><div style="width:${pc}%;height:100%;background:var(--accent)"></div></div></div>`}).join("")}<div class="meta num">Đã bỏ phiếu: ${p.voted}/${tot} căn (${tot?Math.round(p.voted/tot*100):0}%), ${fnum(p.votedArea)}/${fnum(totA)} m² (${totA?Math.round(p.votedArea/totA*100):0}% diện tích)</div></div>`:`<div class="meta" style="margin-top:8px">Kết quả hiển thị sau khi biểu quyết kết thúc. Đã có ${p.voted} căn bỏ phiếu.</div>`;
+  const vote=(p.open&&myU)?`<div style="margin-top:10px"><div class="meta" style="margin-bottom:6px">${p.myChoice?"Bạn đã chọn “"+esc(p.myChoice)+"” cho căn "+esc(myU)+". Có thể đổi đến khi hết hạn.":"Căn "+esc(myU)+" chưa bỏ phiếu."}</div><div class="actions">${p.options.map(o=>`<button class="btn small ${p.myChoice===o?"primary":""}" data-act="poll-vote" data-id="${esc(p.id)}" data-opt="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>`:(p.open&&!ed?'<div class="meta" style="margin-top:8px">Cần tài khoản gắn với căn hộ để bỏ phiếu. Liên hệ Ban quản trị.</div>':"");
+  return `<section class="card"><div class="head-row"><h3>${esc(p.title)} ${st}</h3><div class="actions">${ed&&p.open?`<button class="btn small" data-act="ballot-enter" data-id="${esc(p.id)}">Nhập phiếu giấy</button>`:""}${ed?`<button class="btn small" data-act="ballot-view" data-id="${esc(p.id)}">Xem phiếu</button>`:""}<button class="btn small" data-act="poll-edit" data-id="${esc(p.id)}" data-admin="1">Sửa</button><button class="btn small" data-act="poll-close" data-id="${esc(p.id)}" data-closed="${p.closed?0:1}" data-admin="1">${p.closed?"Mở lại":"Chốt"}</button><button class="btn small danger" data-act="poll-remove" data-id="${esc(p.id)}" data-admin="1">Xóa</button></div></div>
+  <div class="meta">${p.deadline?"Hạn bỏ phiếu: "+vdate(p.deadline)+" · ":""}Đăng bởi ${esc(p.byName||"")} · ${vtime(p.created)}</div>${p.body?`<p style="white-space:pre-wrap;margin:8px 0 0">${esc(p.body)}</p>`:""}${res}${vote}</section>`;
+}
+function vPolls(){
+  if(polls===null||(isEd()&&units===null)){loadPolls();return '<div class="empty">Đang tải…</div>'}
+  return `<div class="head-row"><h2>Biểu quyết</h2><button class="btn primary" data-act="poll-new" data-admin="1">+ Tạo biểu quyết</button></div>
+  <div class="banner info">Mỗi căn hộ một phiếu, tính theo số căn và theo diện tích. Cư dân đăng nhập bằng tài khoản gắn căn hộ để bỏ phiếu; kết quả công bố khi biểu quyết kết thúc.</div>
+  ${polls.items.length?polls.items.map(pollBlock).join(""):'<div class="card empty">Chưa có biểu quyết nào.</div>'}`;
+}
+function pollForm(p){
+  const cur=p||{title:"",body:"",options:["Đồng ý","Không đồng ý","Không có ý kiến"],deadline:""};
+  openModal(p?"Sửa biểu quyết":"Tạo biểu quyết",`<div class="fields">
+    ${F("po-t","Vấn đề cần biểu quyết",`<input id="po-t" name="title" required maxlength="200" value="${esc(cur.title)}">`,"full")}
+    ${F("po-b","Nội dung, thông tin kèm theo",`<textarea id="po-b" name="body" rows="5" maxlength="3000">${esc(cur.body||"")}</textarea>`,"full")}
+    ${F("po-o","Các lựa chọn (mỗi dòng một lựa chọn, từ 2 đến 8)",`<textarea id="po-o" name="options" rows="4" required>${esc(cur.options.join("\n"))}</textarea>`,"full")}
+    ${F("po-d","Hạn bỏ phiếu (đến hết ngày)",`<input id="po-d" name="deadline" type="date" value="${esc(cur.deadline||"")}">`,"full")}
+  </div>${p?'<p style="margin:0;font-size:13px;color:var(--muted)">Đã có phiếu thì không đổi được các lựa chọn.</p>':""}`,async fd=>{
+    try{await api("poll_save",{id:p?p.id:"",title:fd.get("title"),body:fd.get("body"),options:fd.get("options").split(/\r?\n/),deadline:fd.get("deadline")});polls=null;render()}catch(e){fail(e);return false}
+  });
+}
+
 /* ---------- góp ý nhận được ---------- */
 function ghUrl(f){
   const t=(f.kind||"Góp ý")+": "+String(f.message).replace(/\s+/g," ").slice(0,70);
@@ -565,7 +675,7 @@ function vAdmin(){
   return `<div class="head-row"><h2>Quản trị</h2><button class="btn" data-act="settings">Cài đặt chung</button></div>
   <section class="card"><div class="head-row"><h3>Tài khoản Ban quản trị</h3><button class="btn small primary" data-act="user-add">+ Thêm tài khoản</button></div>
   <p class="meta" style="margin:6px 0 10px">Trưởng ban có toàn quyền và duyệt chi. Kế toán nhập thu chi, tài sản, bảo trì, chứng từ nhưng không duyệt chi và không đổi cài đặt. Cư dân dùng mật khẩu chung, chỉ xem.</p>
-  ${users.length?`<div class="tablewrap"><table><thead><tr><th>Tên</th><th>Đăng nhập</th><th>Quyền</th><th>Trạng thái</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(ROLES[u.role]||u.role)}</td><td>${u.active?'<span class="pill good">Hoạt động</span>':'<span class="pill mute">Đã khóa</span>'}</td><td class="r"><button class="btn small" data-act="user-edit" data-id="${esc(u.id)}">Sửa</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản riêng. Hiện mọi người trong Ban quản trị dùng chung một mật khẩu.</div>'}
+  ${users.length?`<div class="tablewrap"><table><thead><tr><th>Tên</th><th>Đăng nhập</th><th>Căn hộ</th><th>Quyền</th><th>Trạng thái</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.unit||"")}</td><td>${esc(ROLES[u.role]||u.role)}</td><td>${u.active?'<span class="pill good">Hoạt động</span>':'<span class="pill mute">Đã khóa</span>'}</td><td class="r"><button class="btn small" data-act="user-edit" data-id="${esc(u.id)}">Sửa</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản riêng. Hiện mọi người trong Ban quản trị dùng chung một mật khẩu.</div>'}
   <div class="actions" style="margin-top:12px"><button class="btn" data-act="viewer-pw">Đổi mật khẩu cư dân (chỉ xem)</button>
   <button class="btn" data-act="legacy-toggle">${state.meta.legacyOff?"Bật lại":"Tắt"} đăng nhập bằng mật khẩu chung của Ban quản trị</button></div>
   ${state.meta.legacyOff?'<p class="meta" style="margin:8px 0 0">Mật khẩu chung của Ban quản trị đang tắt: chỉ tài khoản riêng đăng nhập được.</p>':(admins<1?'<p class="meta" style="margin:8px 0 0">Tạo ít nhất một tài khoản Trưởng ban rồi mới tắt được mật khẩu chung.</p>':"")}</section>
@@ -715,11 +825,12 @@ function userForm(u){
     ${F("u-name","Họ tên (cư dân: ghi kèm số căn, vd Nguyễn A, T3-301)",`<input id="u-name" name="name" required maxlength="80" value="${esc(u?u.name:"")}">`,"full")}
     ${F("u-un","Tên đăng nhập (chữ thường, số, . _ -)",`<input id="u-un" name="username" required pattern="[a-z0-9._\\-]{3,30}" ${u?"readonly":""} value="${esc(u?u.username:"")}" autocapitalize="none">`)}
     ${F("u-role","Quyền",`<select id="u-role" name="role">${opt([["viewer",ROLES.viewer],["editor",ROLES.editor],["admin",ROLES.admin]],u?u.role:"editor")}</select>`)}
+    ${F("u-unit","Căn hộ (tài khoản cư dân: để biểu quyết, đăng ký xe)",`<input id="u-unit" name="unit" maxlength="20" value="${esc(u?u.unit||"":"")}" placeholder="vd: T3-301" autocapitalize="characters">`,"full")}
     ${F("u-pw",u?"Đặt lại mật khẩu (bỏ trống nếu giữ)":"Mật khẩu (từ 8 ký tự)",`<input id="u-pw" name="password" type="text" ${u?"":"required"} minlength="8" maxlength="100" autocomplete="off">`,"full")}
     ${u?'<label class="check full" for="u-act"><input id="u-act" name="active" type="checkbox"'+(u.active?" checked":"")+"> Cho phép đăng nhập</label>":""}
   </div>`,async fd=>{
     try{
-      await api("user_save",{id:u?u.id:"",name:fd.get("name"),username:fd.get("username"),role:fd.get("role"),password:fd.get("password"),active:u?!!fd.get("active"):true});
+      await api("user_save",{id:u?u.id:"",name:fd.get("name"),username:fd.get("username"),role:fd.get("role"),unit:fd.get("unit"),password:fd.get("password"),active:u?!!fd.get("active"):true});
       if(!u&&me)me.hasUsers=true;
       users=null;audit=null;render();toast(u?"Đã lưu tài khoản.":"Đã tạo tài khoản.");
     }catch(e){fail(e);return false}
@@ -860,6 +971,31 @@ document.addEventListener("click",async e=>{
     if(b.dataset.sure!=="1"){b.dataset.sure="1";b.textContent="Bấm lần nữa để xóa";return}
     try{await api("file_del",{id});state.files=state.files.filter(f=>f.id!==id);drawFiles();render()}catch(err){fail(err)}
   }
+  else if(act==="unit-new")unitForm();
+  else if(act==="unit-edit")unitForm(units.find(u=>u.id===id));
+  else if(act==="units-import")unitsImportForm();
+  else if(act==="unit-remove"){confirmBox("Xóa căn hộ?",`Xóa căn ${esc(id)}? Tài khoản đang gắn với căn này sẽ bị gỡ liên kết. Xe đã đăng ký vẫn được giữ.`,"Xóa",async()=>{try{await api("unit_del",{id});units=null;render()}catch(err){fail(err);return false}})}
+  else if(act==="veh-new")vehForm();
+  else if(act==="veh-edit")vehForm(vehs.find(v=>v.id===id));
+  else if(act==="veh-status"){try{await api("vehicle_status",{id,status:b.dataset.st});vehs=null;render()}catch(err){fail(err)}}
+  else if(act==="veh-remove"){const v=vehs.find(x=>x.id===id);confirmBox("Xóa xe?",`Xóa xe ${esc(v.plate==="XE-DAP"?v.type:v.plate)} của căn ${esc(v.unit)}?`,"Xóa",async()=>{try{await api("vehicle_del",{id});vehs=null;render()}catch(err){fail(err);return false}})}
+  else if(act==="poll-new")pollForm();
+  else if(act==="poll-edit")pollForm(polls.items.find(p=>p.id===id));
+  else if(act==="poll-close"){try{await api("poll_close",{id,closed:b.dataset.closed==="1"});polls=null;render()}catch(err){fail(err)}}
+  else if(act==="poll-remove"){confirmBox("Xóa biểu quyết?","Biểu quyết và toàn bộ phiếu sẽ bị xóa, không hoàn tác được.","Xóa",async()=>{try{await api("poll_del",{id});polls=null;render()}catch(err){fail(err);return false}})}
+  else if(act==="poll-vote"){try{await api("ballot_cast",{poll:id,choice:b.dataset.opt});polls=null;render();toast("Đã ghi nhận phiếu của căn "+polls_unit())}catch(err){fail(err)}}
+  else if(act==="ballot-enter"){
+    const p=polls.items.find(x=>x.id===id);
+    openModal("Nhập phiếu giấy",`<div class="fields">${F("bl-u","Căn hộ",`<input id="bl-u" name="unit" required list="ulist2" autocapitalize="characters"><datalist id="ulist2">${(units||[]).map(u=>`<option value="${esc(u.code)}">`).join("")}</datalist>`,"full")}${F("bl-c","Lựa chọn",`<select id="bl-c" name="choice">${opt(p.options,"")}</select>`,"full")}</div><p style="margin:0;font-size:13px;color:var(--muted)">${esc(p.title)}. Nhập lại cho căn đã bỏ phiếu sẽ thay phiếu cũ. Thao tác được ghi vào nhật ký.</p>`,async fd=>{
+      try{await api("ballot_cast",{poll:id,unit:fd.get("unit"),choice:fd.get("choice")});polls=null;render();toast("Đã nhập phiếu.")}catch(err){fail(err);return false}
+    },"Ghi phiếu");
+  }
+  else if(act==="ballot-view"){
+    const p=polls.items.find(x=>x.id===id);
+    try{const j=await api("ballots_list&poll="+encodeURIComponent(id));
+      openModal("Phiếu đã nhận: "+p.title,j.items.length?`<div class="tablewrap" style="border:0"><table><thead><tr><th>Căn</th><th>Lựa chọn</th><th>Lúc</th><th>Người ghi</th></tr></thead><tbody>${j.items.map(r=>`<tr><td><strong>${esc(r.unit)}</strong></td><td>${esc(r.choice)}</td><td class="num">${vtime(r.ts)}</td><td>${esc(r.by_name||"")}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có phiếu.</div>',()=>{},"Đóng",true)
+    }catch(err){fail(err)}
+  }
   else if(act==="asset-detail")assetDetail(id);
   else if(act==="add-notice")noticeForm();
   else if(act==="edit-notice")noticeForm(state.notices.find(n=>n.id===id));
@@ -889,7 +1025,7 @@ document.addEventListener("click",async e=>{
     const off=!state.meta.legacyOff;
     confirmBox(off?"Tắt mật khẩu chung?":"Bật lại mật khẩu chung?",off?"Sau khi tắt, Ban quản trị chỉ đăng nhập bằng tài khoản riêng. Người đang dùng mật khẩu chung vẫn làm việc được đến khi đăng xuất.":"Mật khẩu chung của Ban quản trị sẽ đăng nhập được trở lại.","Đồng ý",async()=>{try{await api("legacy_off",{off});state.meta.legacyOff=off;render()}catch(err){fail(err);return false}});
   }
-  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;audit=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
+  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};loaded=0;state={txns:[],assets:[],maints:[],notices:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
   else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(err){fail(err)}})}
   else if(act==="goto-pending"){filt.txn.status="pending";location.hash="thu-chi";render()}
   else if(act==="print")window.print();
@@ -917,7 +1053,7 @@ document.addEventListener("change",async e=>{
   }
 });
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){filesCtx=null;detailCtx=null;closeModal()}});
-window.addEventListener("hashchange",()=>{const t=curTab();if(t==="gop-y")fb=null;if(t==="quan-tri"){users=null;audit=null}render();window.scrollTo(0,0)});
+window.addEventListener("hashchange",()=>{const t=curTab();if(t==="gop-y")fb=null;if(t==="can-ho")units=null;if(t==="gui-xe"){vehs=null;units=null}if(t==="bieu-quyet"){polls=null;ballots={}}if(t==="quan-tri"){users=null;audit=null}render();window.scrollTo(0,0)});
 document.addEventListener("submit",async e=>{
   if(e.target.id!=="loginForm")return;
   e.preventDefault();
@@ -925,7 +1061,7 @@ document.addEventListener("submit",async e=>{
   const fd=new FormData(e.target);
   try{
     me=await api("login",{username:fd.get("username"),password:fd.get("password")});
-    fb=null;users=null;audit=null;
+    fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};
     await loadAll();render();
   }catch(err){
     me=null;btn.disabled=false;

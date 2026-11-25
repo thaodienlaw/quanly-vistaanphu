@@ -115,7 +115,7 @@ textarea{resize:vertical;min-height:64px}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;max-width:calc(100% - 32px)}
 #toast[hidden]{display:none}
-body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],body.ro [data-act="seed"],body.ro [data-act="clear-sample"],body.ro #btnSettings{display:none!important}
+body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],body.ro [data-act="seed"],body.ro [data-act="clear-sample"],body.ro #btnSettings,body.ro #btnPw{display:none!important}
 .login{max-width:380px;margin:40px auto;display:flex;flex-direction:column;gap:12px}
 .login label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:500;color:var(--muted)}
 .hp{position:absolute;left:-9999px;height:0;overflow:hidden}
@@ -131,7 +131,7 @@ body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],b
   <div class="wrap">
     <div class="top-row">
       <div class="brand"><span id="orgName">The Vista An Phú</span><small>Quản lý quỹ bảo trì, quỹ vận hành và tài sản chung cư</small></div>
-      <div class="actions"><button class="btn" data-act="feedback" id="btnFeedback">Góp ý</button><button class="btn" data-act="settings" id="btnSettings">Số dư đầu kỳ</button><button class="btn ghost" data-act="logout" id="btnLogout" hidden>Đăng xuất</button></div>
+      <div class="actions"><button class="btn" data-act="feedback" id="btnFeedback">Góp ý</button><button class="btn" data-act="settings" id="btnSettings">Số dư đầu kỳ</button><button class="btn" data-act="passwd" id="btnPw">Đổi mật khẩu</button><button class="btn ghost" data-act="logout" id="btnLogout" hidden>Đăng xuất</button></div>
     </div>
     <nav class="tabs" aria-label="Chuyên mục">
       <button data-tab="tong-quan">Tổng quan</button>
@@ -143,7 +143,6 @@ body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],b
   </div>
 </header>
 <div class="wrap"><main id="view" aria-live="polite"></main></div>
-<footer class="foot">The Vista An Phú · Mã nguồn mở, mọi người cùng góp ý trên <a href="https://github.com/thaodienlaw/quanly-vistaanphu" target="_blank" rel="noopener">GitHub</a></footer>
 <div id="modal"></div>
 <div id="toast" hidden></div>
 
@@ -492,6 +491,19 @@ function exportCsv(name,head,rows){
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:"text/csv;charset=utf-8"}));a.download=name;
   document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),3000);
 }
+/* ---------- đổi mật khẩu ---------- */
+function passwdForm(){
+  openModal("Đổi mật khẩu",`<div class="fields">
+    ${F("p-e","Mật khẩu mới cho Ban quản trị (xem và sửa)",`<input id="p-e" name="editor" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="Bỏ trống nếu không đổi">`,"full")}
+    ${F("p-v","Mật khẩu mới cho cư dân (chỉ xem)",`<input id="p-v" name="viewer" type="password" minlength="8" maxlength="100" autocomplete="new-password" placeholder="Bỏ trống nếu không đổi">`,"full")}
+  </div><p style="margin:0;font-size:13px;color:var(--muted)">Mật khẩu dài từ 8 ký tự. Người đang đăng nhập vẫn dùng được đến khi đóng trình duyệt.</p>`,async fd=>{
+    const e=fd.get("editor"),v=fd.get("viewer");
+    if(!e&&!v){toast("Hãy nhập ít nhất một mật khẩu mới.");return false}
+    if((e&&e.length<8)||(v&&v.length<8)){toast("Mật khẩu cần từ 8 ký tự.");return false}
+    try{if(e)await api("passwd",{role:"editor",password:e});if(v)await api("passwd",{role:"viewer",password:v});toast("Đã đổi mật khẩu.")}
+    catch(err){fail(err);return false}
+  },"Đổi mật khẩu");
+}
 /* ---------- góp ý ---------- */
 function feedbackForm(){
   openModal("Góp ý cho trang quản lý",`<div class="fields">
@@ -525,6 +537,7 @@ document.addEventListener("click",e=>{
   else if(act==="del-maint"){const m=state.maints.find(x=>x.id===id);confirmBox("Xóa lần bảo trì?",`Xóa “${esc(m.title)}” ngày ${vdate(m.date)}?${m.txnId?" Khoản chi tương ứng trong quỹ cũng bị xóa.":""}`,"Xóa",async()=>{if(m.txnId)await del("txns",m.txnId);await del("maints",id)})}
   else if(act==="settings")settingsForm();
   else if(act==="feedback")feedbackForm();
+  else if(act==="passwd")passwdForm();
   else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;loaded=0;state={txns:[],assets:[],maints:[],settings:{name:"",openMaint:0,openOps:0}};render()})}
   else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(e){fail(e)}})}
   else if(act==="seed"){b.disabled=true;seed()}

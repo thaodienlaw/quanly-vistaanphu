@@ -35,6 +35,7 @@ $pdo = new PDO('sqlite:' . $dbFile, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMO
 $pdo->exec('PRAGMA busy_timeout = 5000');
 $pdo->exec('CREATE TABLE IF NOT EXISTS docs (col TEXT NOT NULL, id TEXT NOT NULL, data TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY (col, id))');
 $pdo->exec('CREATE TABLE IF NOT EXISTS feedback (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, message TEXT NOT NULL, name TEXT, contact TEXT, ip TEXT, created INTEGER NOT NULL)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS auth (role TEXT PRIMARY KEY, hash TEXT NOT NULL)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS hits (kind TEXT NOT NULL, ip TEXT NOT NULL, ts INTEGER NOT NULL)');
 
 $a = (string)($_GET['a'] ?? '');
@@ -79,9 +80,12 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         if (hits($pdo, 'login', $ip, 600) >= 8) out(429, ['error' => 'too_many']);
         $pw = (string)($body['password'] ?? '');
+        $hashes = ['editor' => (string)($cfg['editor_hash'] ?? ''), 'viewer' => (string)($cfg['viewer_hash'] ?? '')];
+        foreach ($pdo->query('SELECT role, hash FROM auth') as $r) $hashes[$r['role']] = $r['hash']; // mật khẩu đổi trên web ưu tiên hơn config.php
         $found = null;
-        if ($pw !== '' && !empty($cfg['editor_hash']) && password_verify($pw, $cfg['editor_hash'])) $found = 'editor';
-        elseif ($pw !== '' && !empty($cfg['viewer_hash']) && password_verify($pw, $cfg['viewer_hash'])) $found = 'viewer';
+        foreach (['editor', 'viewer'] as $rl) {
+            if ($pw !== '' && $hashes[$rl] !== '' && password_verify($pw, $hashes[$rl])) { $found = $rl; break; }
+        }
         if (!$found) { addHit($pdo, 'login', $ip); out(401, ['error' => 'bad_password']); }
         session_regenerate_id(true);
         $_SESSION['role'] = $found;
@@ -91,6 +95,14 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         $_SESSION = [];
         session_destroy();
+        out(200, ['ok' => true]);
+
+    case 'passwd':
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needRole($role, true);
+        $rl = (string)($body['role'] ?? ''); $np = (string)($body['password'] ?? '');
+        if (!in_array($rl, ['editor', 'viewer'], true) || mb_strlen($np) < 8 || mb_strlen($np) > 100) out(400, ['error' => 'bad_password_format']);
+        $pdo->prepare('INSERT INTO auth (role, hash) VALUES (?,?) ON CONFLICT(role) DO UPDATE SET hash = excluded.hash')->execute([$rl, password_hash($np, PASSWORD_DEFAULT)]);
         out(200, ['ok' => true]);
 
     case 'all':

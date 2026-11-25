@@ -43,12 +43,15 @@ h3{font-size:15px;font-weight:600}
 button,input,select,textarea{font:inherit;color:inherit}
 .num{font-variant-numeric:tabular-nums}
 .wrap{max-width:1100px;margin:0 auto;padding:0 16px}
-header.top{background:var(--surface);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+header.top{background:var(--surface);border-bottom:1px solid var(--line)}
 .top-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0 8px;flex-wrap:wrap}
 .brand{font-size:19px;font-weight:700}
 .brand small{display:block;font-size:12.5px;font-weight:400;color:var(--muted)}
-nav.tabs{display:flex;gap:4px;overflow-x:auto;padding-bottom:0}
-nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:9px 14px;cursor:pointer;color:var(--muted);font-weight:500;white-space:nowrap}
+nav.tabs{display:flex;gap:2px;overflow-x:auto;padding-bottom:0;scrollbar-width:none}
+nav.tabs::-webkit-scrollbar{display:none}
+@media(min-width:900px){nav.tabs{flex-wrap:wrap;overflow:visible}}
+@media(max-width:600px){.top-row .btn{padding:6px 10px;font-size:13px}.top-row .actions{gap:6px}.filters label{flex:1 1 calc(50% - 10px)}.filters select,.filters input{width:100%}}
+nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:9px 12px;cursor:pointer;color:var(--muted);font-weight:500;white-space:nowrap}
 nav.tabs button[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
 nav.tabs button:hover{color:var(--ink)}
 main{padding:20px 0 56px;display:flex;flex-direction:column;gap:20px}
@@ -85,6 +88,7 @@ td .meta{display:block;font-size:12.5px;color:var(--muted)}
 .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
 .filters label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted);font-weight:500}
 input,select,textarea{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 10px;min-width:0}
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden]),select{height:38px}
 textarea{resize:vertical;min-height:64px}
 .summary{display:flex;gap:20px;flex-wrap:wrap;font-size:14px}
 .summary b{font-weight:600}
@@ -130,7 +134,7 @@ body.no-txn [data-act="add-in"],body.no-txn [data-act="add-out"],body.no-txn [da
 tr.voided td{opacity:.55;text-decoration:line-through}tr.voided td .pill,tr.voided td .meta,tr.voided td button{text-decoration:none}
 .thumb{width:44px;height:44px;border-radius:8px;object-fit:cover;flex:none;border:1px solid var(--line)}
 .thumb.pdf{display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;background:var(--accent-soft);color:var(--accent)}
-.rep{width:100%;border-collapse:collapse}.rep td{padding:6px 4px;border-bottom:1px solid var(--line)}.rep .strong td{font-weight:600}.rep .sub td{color:var(--muted);font-size:13px;padding-top:12px}.rep .total td{font-weight:700;font-size:16px;border-top:2px solid var(--ink)}
+.rep{width:100%;min-width:0;border-collapse:collapse}.rep td{padding:6px 4px;border-bottom:1px solid var(--line)}.rep .strong td{font-weight:600}.rep .sub td{color:var(--muted);font-size:13px;padding-top:12px}.rep .total td{font-weight:700;font-size:16px;border-top:2px solid var(--ink)}
 .rep-head{display:none}
 .sign{display:none}
 a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:center}a.btn.primary{color:var(--accent-ink)}
@@ -888,7 +892,7 @@ function vAdmin(){
   const admins=users.filter(u=>u.active&&u.role==="admin").length;
   return `<div class="head-row"><h2>Quản trị</h2><button class="btn" data-act="settings">Cài đặt chung</button></div>
   <section class="card"><div class="head-row"><h3>Tài khoản Ban quản trị</h3><button class="btn small primary" data-act="user-add">+ Thêm tài khoản</button></div>
-  <p class="meta" style="margin:6px 0 10px">Trưởng ban có toàn quyền. Ban quản trị duyệt chi lớn, tạo biểu quyết, xem nhật ký. Ban quản lý lo vận hành: tài sản, bảo trì, nhà thầu, báo cáo, duyệt gửi xe và tiện ích. Kế toán chỉ ghi thu chi và chứng từ. Ban kiểm tra chỉ xem, kể cả nhật ký. Người ghi khoản chi lớn không tự duyệt được khoản đó. Vai trò “Kế toán, Ban quản lý (cũ)” giữ nguyên quyền như trước. Cư dân dùng mật khẩu chung hoặc tài khoản gắn căn hộ</p>
+  <p class="meta" style="margin:6px 0 10px">Trưởng ban có toàn quyền. Ban quản trị duyệt chi lớn, tạo biểu quyết, xem nhật ký. Ban quản lý lo vận hành: tài sản, bảo trì, nhà thầu, báo cáo, duyệt gửi xe và tiện ích. Kế toán chỉ ghi thu chi và chứng từ. Ban kiểm tra chỉ xem, kể cả nhật ký. Người ghi khoản chi lớn không tự duyệt được khoản đó. Vai trò “Kế toán, Ban quản lý (cũ)” giữ nguyên quyền như trước. Cư dân dùng mật khẩu chung hoặc tài khoản gắn căn hộ.</p>
   ${users.length?`<div class="tablewrap"><table><thead><tr><th>Tên</th><th>Đăng nhập</th><th>Căn hộ</th><th>Quyền</th><th>2 bước</th><th>Trạng thái</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.unit||"")}</td><td>${esc(ROLES[u.role]||u.role)}</td><td>${u.totp?'<span class="pill good">Bật</span>':'<span class="pill mute">Chưa</span>'}</td><td>${u.active?'<span class="pill good">Hoạt động</span>':'<span class="pill mute">Đã khóa</span>'}</td><td class="r"><button class="btn small" data-act="user-edit" data-id="${esc(u.id)}">Sửa</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản riêng. Hiện mọi người trong Ban quản trị dùng chung một mật khẩu.</div>'}
   <div class="actions" style="margin-top:12px"><button class="btn" data-act="viewer-pw">Đổi mật khẩu cư dân (chỉ xem)</button>
   <button class="btn" data-act="legacy-toggle">${state.meta.legacyOff?"Bật lại":"Tắt"} đăng nhập bằng mật khẩu chung của Ban quản trị</button></div>

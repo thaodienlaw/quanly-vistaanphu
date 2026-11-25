@@ -152,7 +152,7 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:cent
     </div>
     <nav class="tabs" aria-label="Chuyên mục">
       <button data-tab="tong-quan">Tổng quan</button>
-      <button data-tab="thong-bao">Thông báo, báo cáo</button>
+      <button data-tab="thong-bao">Thông báo</button>
       <button data-tab="thu-chi">Thu chi</button>
       <button data-tab="tai-san">Tài sản</button>
       <button data-tab="bao-tri">Bảo trì</button>
@@ -182,6 +182,7 @@ const CATS={
 const KINDS=["Thiết bị","Máy móc","Xe","Khác"];
 const STATUSES=["Tốt","Cần theo dõi","Hỏng","Ngưng sử dụng"];
 const MKINDS=["Bảo trì","Sửa chữa","Kiểm định","Sử dụng","Đề xuất"];
+const ATYPES=["Kế hoạch ngày","Kế hoạch tháng","Kế hoạch quý","Kế hoạch năm","Báo cáo tuần","Báo cáo tháng","Báo cáo quý","Báo cáo năm"];
 const NTYPES=["Thông báo","Kế hoạch ngày","Kế hoạch tháng","Kế hoạch quý","Kế hoạch năm","Báo cáo tuần","Báo cáo tháng","Báo cáo quý","Báo cáo năm"];
 const NORGS=["Đơn vị quản lý vận hành","Ban quản lý","Ban quản trị"];
 const isPlan=n=>String(n.type).startsWith("Kế hoạch"),isRep=n=>String(n.type).startsWith("Báo cáo");
@@ -219,7 +220,7 @@ let filt={
   txn:{fund:"",type:"",month:"",q:"",status:""},
   asset:{kind:"",q:""},
   maint:{asset:""},
-  rep:{period:"quarter",year:String(new Date().getFullYear()),quarter:String(Math.floor(new Date().getMonth()/3)+1),month:today().slice(0,7),fund:""},
+  rep:{period:"quarter",year:String(new Date().getFullYear()),quarter:String(Math.floor(new Date().getMonth()/3)+1),month:today().slice(0,7),fund:"",view:"fin"},
   audit:{q:""}
 };
 const isEd=()=>!!me&&me.role!=="viewer";
@@ -502,6 +503,11 @@ function fundReport(f,rg){
     ${pend.length?`<p class="meta" style="margin:8px 0 0">Chưa tính: ${pend.length} khoản chi chờ duyệt, tổng ${money(sum(pend,t=>t.amount))}.</p>`:""}</section>`;
 }
 function vReport(){
+  const r=filt.rep;
+  const sw=`<div class="filters noprint"><label>Nội dung<select id="r-view" data-f="rep.view">${opt([["fin","Báo cáo thu chi, bảo trì"],["act","Kế hoạch và báo cáo hoạt động"]],r.view)}</select></label></div>`;
+  return r.view==="act"?vActivities(sw):sw+vFinReport();
+}
+function vFinReport(){
   const r=filt.rep,rg=repRange();
   const funds=r.fund?[r.fund]:["maint","ops"];
   const ms=state.maints.filter(m=>m.date>=rg.start&&m.date<=rg.end).sort((a,b)=>a.date.localeCompare(b.date));
@@ -519,22 +525,31 @@ function vReport(){
   <div class="sign"><div>Người lập<br><br><br></div><div>Kế toán<br><br><br></div><div>Trưởng ban quản trị<br><br><br></div></div>`;
 }
 
-/* ---------- thông báo và kế hoạch ---------- */
-function vNotices(){
-  const f=filt.notice;
-  const rows=state.notices.filter(n=>(!f.type||n.type===f.type)&&(!f.org||n.org===f.org)).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
-  return `<div class="head-row"><h2>Thông báo, kế hoạch và báo cáo hoạt động</h2><button class="btn primary" data-act="add-notice">+ Đăng mới</button></div>
-  <div class="filters"><label>Loại<select id="fn-type" data-f="notice.type">${opt(NTYPES,f.type,"Tất cả")}</select></label><label>Đơn vị<select id="fn-org" data-f="notice.org">${opt(NORGS,f.org,"Tất cả")}</select></label></div>
-  ${rows.length?'<div class="list">'+rows.map(n=>`<div class="item fb"><div class="t"><strong>${esc(n.title)}</strong> <span class="pill ${n.type==="Thông báo"?"mute":isRep(n)?"warn":"good"}">${esc(n.type)}</span>${n.org?` <span class="pill mute">${esc(n.org)}</span>`:""}${n.status?` <span class="pill ${n.status==="Hoàn thành"?"good":n.status==="Đang thực hiện"?"warn":"mute"}">${esc(n.status)}</span>`:""}<span style="display:block">${vdate(n.date)}${n.byName?" · "+esc(n.byName):""}</span>${n.body?`<p>${esc(n.body)}</p>`:""}</div><div class="actions"><button class="btn small" data-act="notice-files" data-id="${esc(n.id)}">Tệp${state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length?" ("+state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length+")":""}</button><button class="btn small" data-act="edit-notice" data-id="${esc(n.id)}">Sửa</button><button class="btn small danger" data-act="del-notice" data-id="${esc(n.id)}">Xóa</button></div></div>`).join("")+"</div>":'<div class="card empty">Chưa có thông báo, kế hoạch hay báo cáo nào.</div>'}`;
+/* ---------- thông báo, kế hoạch và báo cáo hoạt động ---------- */
+function noticeList(rows,empty){
+  return rows.length?'<div class="list">'+rows.map(n=>`<div class="item fb"><div class="t"><strong>${esc(n.title)}</strong> <span class="pill ${n.type==="Thông báo"?"mute":isRep(n)?"warn":"good"}">${esc(n.type)}</span>${n.org?` <span class="pill mute">${esc(n.org)}</span>`:""}${n.status?` <span class="pill ${n.status==="Hoàn thành"?"good":n.status==="Đang thực hiện"?"warn":"mute"}">${esc(n.status)}</span>`:""}<span style="display:block">${vdate(n.date)}${n.byName?" · "+esc(n.byName):""}</span>${n.body?`<p>${esc(n.body)}</p>`:""}</div><div class="actions"><button class="btn small" data-act="notice-files" data-id="${esc(n.id)}">Tệp${state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length?" ("+state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length+")":""}</button><button class="btn small" data-act="edit-notice" data-id="${esc(n.id)}">Sửa</button><button class="btn small danger" data-act="del-notice" data-id="${esc(n.id)}">Xóa</button></div></div>`).join("")+"</div>":`<div class="card empty">${empty}</div>`;
 }
-function noticeForm(n){
-  const cur=n||{type:"Thông báo",org:"Đơn vị quản lý vận hành",title:"",date:today(),status:"",body:""};
-  openModal(n?"Sửa bài đăng":"Đăng thông báo, kế hoạch, báo cáo",`<div class="fields">
-    ${F("n-type","Loại",`<select id="n-type" name="type">${opt(NTYPES,cur.type)}</select>`)}
+function vActivities(sw){
+  const f=filt.notice;
+  const rows=state.notices.filter(n=>n.type!=="Thông báo"&&(!f.type||n.type===f.type)&&(!f.org||n.org===f.org)).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
+  return sw+`<div class="head-row"><h2>Kế hoạch và báo cáo hoạt động</h2><button class="btn primary" data-act="add-notice" data-mode="act">+ Đăng mới</button></div>
+  <div class="filters"><label>Loại<select id="fn-type" data-f="notice.type">${opt(ATYPES,f.type,"Tất cả")}</select></label><label>Đơn vị<select id="fn-org" data-f="notice.org">${opt(NORGS,f.org,"Tất cả")}</select></label></div>
+  ${noticeList(rows,"Chưa có kế hoạch hay báo cáo hoạt động nào. Đơn vị quản lý vận hành, Ban quản lý, Ban quản trị đăng tại đây.")}`;
+}
+function vNotices(){
+  const rows=state.notices.filter(n=>n.type==="Thông báo").sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
+  return `<div class="head-row"><h2>Thông báo</h2><button class="btn primary" data-act="add-notice">+ Đăng thông báo</button></div>
+  ${noticeList(rows,"Chưa có thông báo nào.")}`;
+}
+function noticeForm(n,mode){
+  const act=n?n.type!=="Thông báo":mode==="act";
+  const cur=n||{type:act?"Báo cáo tháng":"Thông báo",org:"Đơn vị quản lý vận hành",title:"",date:today(),status:"",body:""};
+  openModal(n?"Sửa bài đăng":act?"Đăng kế hoạch, báo cáo hoạt động":"Đăng thông báo",`<div class="fields">
+    ${act?F("n-type","Loại",`<select id="n-type" name="type">${opt(ATYPES,cur.type)}</select>`):`<input type="hidden" name="type" value="Thông báo">`}
     ${F("n-org","Đơn vị đăng",`<select id="n-org" name="org">${opt(NORGS,cur.org||"Đơn vị quản lý vận hành")}</select>`,"full")}
     ${F("n-date","Ngày (hoặc ngày bắt đầu)",`<input id="n-date" name="date" type="date" required value="${esc(cur.date)}">`)}
     ${F("n-title","Tiêu đề",`<input id="n-title" name="title" required maxlength="160" value="${esc(cur.title)}">`,"full")}
-    ${F("n-st","Tiến độ (cho kế hoạch)",`<select id="n-st" name="status">${opt(NSTAT,cur.status,"Không áp dụng")}</select>`,"full")}
+    ${act?F("n-st","Tiến độ (cho kế hoạch)",`<select id="n-st" name="status">${opt(NSTAT,cur.status,"Không áp dụng")}</select>`,"full"):`<input type="hidden" name="status" value="">`}
     ${F("n-body","Nội dung",`<textarea id="n-body" name="body" rows="6" maxlength="4000">${esc(cur.body||"")}</textarea>`,"full")}
   </div>`,async fd=>{
     return !!(await put("notices",n?n.id:"n"+uid(),{type:fd.get("type"),org:fd.get("org"),date:fd.get("date"),title:fd.get("title").trim(),status:fd.get("status"),body:fd.get("body").trim()}));
@@ -1196,7 +1211,7 @@ document.addEventListener("click",async e=>{
     }catch(err){fail(err)}
   }
   else if(act==="asset-detail")assetDetail(id);
-  else if(act==="add-notice")noticeForm();
+  else if(act==="add-notice")noticeForm(null,b.dataset.mode);
   else if(act==="notice-files")filesModal("notices",id);
   else if(act==="edit-notice")noticeForm(state.notices.find(n=>n.id===id));
   else if(act==="del-notice"){const n=state.notices.find(x=>x.id===id);confirmBox("Xóa bài đăng?",`Xóa “${esc(n.title)}”?`,"Xóa",()=>del("notices",id))}

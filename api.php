@@ -338,7 +338,8 @@ switch ($a) {
         } elseif ($col === 'notices') {
             if (trim((string)($data['title'] ?? '')) === '') out(400, ['error' => 'bad_request']);
             if (!in_array($data['type'] ?? '', ['Thông báo', 'Kế hoạch ngày', 'Kế hoạch tháng', 'Kế hoạch quý', 'Kế hoạch năm', 'Báo cáo tuần', 'Báo cáo tháng', 'Báo cáo quý', 'Báo cáo năm'], true)) $data['type'] = 'Thông báo';
-            if (!in_array($data['org'] ?? '', ['Đơn vị quản lý vận hành', 'Ban quản lý', 'Ban quản trị'], true)) $data['org'] = '';
+            if (($data['org'] ?? '') === 'Đơn vị quản lý vận hành') $data['org'] = 'Ban quản lý';
+            if (!in_array($data['org'] ?? '', ['Ban quản lý', 'Ban quản trị'], true)) $data['org'] = '';
             if (!in_array($data['status'] ?? '', ['Dự kiến', 'Đang thực hiện', 'Hoàn thành', ''], true)) $data['status'] = '';
             $data['title'] = mb_substr((string)$data['title'], 0, 160); $data['body'] = mb_substr((string)($data['body'] ?? ''), 0, 4000);
             $who = actor(); $data['byName'] = $old['byName'] ?? $who['name'];

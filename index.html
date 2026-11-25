@@ -184,7 +184,8 @@ const STATUSES=["Tốt","Cần theo dõi","Hỏng","Ngưng sử dụng"];
 const MKINDS=["Bảo trì","Sửa chữa","Kiểm định","Sử dụng","Đề xuất"];
 const ATYPES=["Kế hoạch ngày","Kế hoạch tháng","Kế hoạch quý","Kế hoạch năm","Báo cáo tuần","Báo cáo tháng","Báo cáo quý","Báo cáo năm"];
 const NTYPES=["Thông báo","Kế hoạch ngày","Kế hoạch tháng","Kế hoạch quý","Kế hoạch năm","Báo cáo tuần","Báo cáo tháng","Báo cáo quý","Báo cáo năm"];
-const NORGS=["Đơn vị quản lý vận hành","Ban quản lý","Ban quản trị"];
+const NORGS=["Ban quản lý","Ban quản trị"];
+const orgOf=n=>n.org==="Đơn vị quản lý vận hành"?"Ban quản lý":(n.org||"");
 const isPlan=n=>String(n.type).startsWith("Kế hoạch"),isRep=n=>String(n.type).startsWith("Báo cáo");
 const NSTAT=["Dự kiến","Đang thực hiện","Hoàn thành"];
 const ROLES={admin:"Trưởng ban (toàn quyền)",editor:"Kế toán, Ban quản lý (nhập liệu)",viewer:"Cư dân (chỉ xem)"};
@@ -412,7 +413,7 @@ function vOverview(){
   const notes=[...state.notices].sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id)).slice(0,3);
   const recent=[...state.txns].filter(t=>!t.voided).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id)).slice(0,6);
   return notices()+`<div class="grid2">${fundCard("maint")}${fundCard("ops")}</div>
-  ${notes.length?`<section class="card"><div class="head-row"><h2>Thông báo, kế hoạch, báo cáo mới</h2><button class="btn small" data-tab="thong-bao">Xem tất cả</button></div><div class="list">${notes.map(n=>`<div class="item"><div class="t"><strong>${esc(n.title)}</strong><span>${esc(n.type)}${n.org?" · "+esc(n.org):""} · ${vdate(n.date)}</span></div>${n.status?`<span class="pill mute">${esc(n.status)}</span>`:""}</div>`).join("")}</div></section>`:""}
+  ${notes.length?`<section class="card"><div class="head-row"><h2>Thông báo, kế hoạch, báo cáo mới</h2><button class="btn small" data-tab="thong-bao">Xem tất cả</button></div><div class="list">${notes.map(n=>`<div class="item"><div class="t"><strong>${esc(n.title)}</strong><span>${esc(n.type)}${orgOf(n)?" · "+esc(orgOf(n)):""} · ${vdate(n.date)}</span></div>${n.status?`<span class="pill mute">${esc(n.status)}</span>`:""}</div>`).join("")}</div></section>`:""}
   <div class="grid2">
     <section class="card"><div class="head-row"><h2>Cần xử lý</h2><button class="btn small" data-tab="bao-tri">Xem lịch</button></div>${dueItems(alerts,"Không có mốc nào quá hạn hoặc sắp đến hạn trong 30 ngày.")}</section>
     <section class="card"><div class="head-row"><h2>Thu chi 6 tháng</h2><div class="legend"><span><i style="background:var(--in)"></i>Thu</span><span><i style="background:var(--out)"></i>Chi</span></div></div>${chart}</section>
@@ -527,14 +528,14 @@ function vFinReport(){
 
 /* ---------- thông báo, kế hoạch và báo cáo hoạt động ---------- */
 function noticeList(rows,empty){
-  return rows.length?'<div class="list">'+rows.map(n=>`<div class="item fb"><div class="t"><strong>${esc(n.title)}</strong> <span class="pill ${n.type==="Thông báo"?"mute":isRep(n)?"warn":"good"}">${esc(n.type)}</span>${n.org?` <span class="pill mute">${esc(n.org)}</span>`:""}${n.status?` <span class="pill ${n.status==="Hoàn thành"?"good":n.status==="Đang thực hiện"?"warn":"mute"}">${esc(n.status)}</span>`:""}<span style="display:block">${vdate(n.date)}${n.byName?" · "+esc(n.byName):""}</span>${n.body?`<p>${esc(n.body)}</p>`:""}</div><div class="actions"><button class="btn small" data-act="notice-files" data-id="${esc(n.id)}">Tệp${state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length?" ("+state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length+")":""}</button><button class="btn small" data-act="edit-notice" data-id="${esc(n.id)}">Sửa</button><button class="btn small danger" data-act="del-notice" data-id="${esc(n.id)}">Xóa</button></div></div>`).join("")+"</div>":`<div class="card empty">${empty}</div>`;
+  return rows.length?'<div class="list">'+rows.map(n=>`<div class="item fb"><div class="t"><strong>${esc(n.title)}</strong> <span class="pill ${n.type==="Thông báo"?"mute":isRep(n)?"warn":"good"}">${esc(n.type)}</span>${orgOf(n)?` <span class="pill mute">${esc(orgOf(n))}</span>`:""}${n.status?` <span class="pill ${n.status==="Hoàn thành"?"good":n.status==="Đang thực hiện"?"warn":"mute"}">${esc(n.status)}</span>`:""}<span style="display:block">${vdate(n.date)}${n.byName?" · "+esc(n.byName):""}</span>${n.body?`<p>${esc(n.body)}</p>`:""}</div><div class="actions"><button class="btn small" data-act="notice-files" data-id="${esc(n.id)}">Tệp${state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length?" ("+state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length+")":""}</button><button class="btn small" data-act="edit-notice" data-id="${esc(n.id)}">Sửa</button><button class="btn small danger" data-act="del-notice" data-id="${esc(n.id)}">Xóa</button></div></div>`).join("")+"</div>":`<div class="card empty">${empty}</div>`;
 }
 function vActivities(sw){
   const f=filt.notice;
-  const rows=state.notices.filter(n=>n.type!=="Thông báo"&&(!f.type||n.type===f.type)&&(!f.org||n.org===f.org)).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
+  const rows=state.notices.filter(n=>n.type!=="Thông báo"&&(!f.type||n.type===f.type)&&(!f.org||orgOf(n)===f.org)).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
   return sw+`<div class="head-row"><h2>Kế hoạch và báo cáo hoạt động</h2><button class="btn primary" data-act="add-notice" data-mode="act">+ Đăng mới</button></div>
   <div class="filters"><label>Loại<select id="fn-type" data-f="notice.type">${opt(ATYPES,f.type,"Tất cả")}</select></label><label>Đơn vị<select id="fn-org" data-f="notice.org">${opt(NORGS,f.org,"Tất cả")}</select></label></div>
-  ${noticeList(rows,"Chưa có kế hoạch hay báo cáo hoạt động nào. Đơn vị quản lý vận hành, Ban quản lý, Ban quản trị đăng tại đây.")}`;
+  ${noticeList(rows,"Chưa có kế hoạch hay báo cáo hoạt động nào. Ban quản lý (đơn vị quản lý vận hành) và Ban quản trị đăng tại đây.")}`;
 }
 function vNotices(){
   const rows=state.notices.filter(n=>n.type==="Thông báo").sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
@@ -543,10 +544,10 @@ function vNotices(){
 }
 function noticeForm(n,mode){
   const act=n?n.type!=="Thông báo":mode==="act";
-  const cur=n||{type:act?"Báo cáo tháng":"Thông báo",org:"Đơn vị quản lý vận hành",title:"",date:today(),status:"",body:""};
+  const cur=n||{type:act?"Báo cáo tháng":"Thông báo",org:"Ban quản lý",title:"",date:today(),status:"",body:""};
   openModal(n?"Sửa bài đăng":act?"Đăng kế hoạch, báo cáo hoạt động":"Đăng thông báo",`<div class="fields">
     ${act?F("n-type","Loại",`<select id="n-type" name="type">${opt(ATYPES,cur.type)}</select>`):`<input type="hidden" name="type" value="Thông báo">`}
-    ${F("n-org","Đơn vị đăng",`<select id="n-org" name="org">${opt(NORGS,cur.org||"Đơn vị quản lý vận hành")}</select>`,"full")}
+    ${F("n-org","Đơn vị đăng",`<select id="n-org" name="org">${opt(NORGS,orgOf(cur)||"Ban quản lý")}</select>`,"full")}
     ${F("n-date","Ngày (hoặc ngày bắt đầu)",`<input id="n-date" name="date" type="date" required value="${esc(cur.date)}">`)}
     ${F("n-title","Tiêu đề",`<input id="n-title" name="title" required maxlength="160" value="${esc(cur.title)}">`,"full")}
     ${act?F("n-st","Tiến độ (cho kế hoạch)",`<select id="n-st" name="status">${opt(NSTAT,cur.status,"Không áp dụng")}</select>`,"full"):`<input type="hidden" name="status" value="">`}
@@ -814,7 +815,7 @@ function bookForm(fid){
 
 /* ---------- tổng hợp hoạt động (trong báo cáo) ---------- */
 function orgBlock(title,org,rows,nt){
-  const mine=nt.filter(n=>n.org===org),reps=mine.filter(isRep),pls=mine.filter(isPlan),pc=st=>pls.filter(n=>(n.status||"Dự kiến")===st).length;
+  const mine=nt.filter(n=>orgOf(n)===org),reps=mine.filter(isRep),pls=mine.filter(isPlan),pc=st=>pls.filter(n=>(n.status||"Dự kiến")===st).length;
   const all=[...reps,...pls].sort((a,b)=>b.date.localeCompare(a.date));
   const r=[...rows,["Báo cáo đã đăng",reps.length],["Kế hoạch: dự kiến / đang thực hiện / hoàn thành",`${pc("Dự kiến")} / ${pc("Đang thực hiện")} / ${pc("Hoàn thành")}`],["Thông báo đã đăng",mine.filter(n=>n.type==="Thông báo").length]];
   return `<section class="card rep-block"><h3>${esc(title)} trong kỳ</h3><table class="rep"><tbody>${r.map(x=>`<tr><td>${esc(x[0])}</td><td class="r num">${esc(x[1])}</td></tr>`).join("")}</tbody></table>${all.length?'<div class="list" style="margin-top:8px">'+all.map(n=>`<div class="item"><div class="t"><strong>${esc(n.title)}</strong><span>${esc(n.type)} · ${vdate(n.date)}${n.status?" · "+esc(n.status):""}</span></div></div>`).join("")+"</div>":""}</section>`;
@@ -840,8 +841,7 @@ function activityReport(rg){
   const impl=pl.filter(p=>p.closed||!p.open);
   return `<section class="card rep-block"><h3>Nhà thầu, đơn vị cung cấp dịch vụ trong kỳ</h3>${vendors.length?`<div class="tablewrap" style="border:0"><table><thead><tr><th>Đơn vị</th><th>Hợp đồng</th><th>Điểm</th><th class="r">Số việc</th><th class="r">Tổng chi</th><th>Gần nhất</th><th>Công việc</th></tr></thead><tbody>${vendors.map(v=>{const vd=state.vendors.find(x=>vkey(x.name)===vkey(v.name)),sc=vd?vendorScore(vd):{n:0,avg:0};return `<tr><td><strong>${esc(v.name)}</strong></td><td>${vd?contractPill(vd):"—"}</td><td>${sc.n?stars(sc.avg):"—"}</td><td class="r num">${v.n}</td><td class="r num">${money(v.sum)}</td><td class="num">${vdate(v.last)}</td><td>${v.items.map(esc).join("; ")}${v.n>v.items.length?"…":""}</td></tr>`}).join("")}</tbody></table></div>`:'<p class="meta">Không có đơn vị nào trong kỳ.</p>'}</section>
   ${orgBlock("Báo cáo hoạt động của Ban quản trị","Ban quản trị",[["Khoản chi lớn đã duyệt / đang chờ duyệt",`${tx.filter(t=>t.approvedBy&&!t.voided).length} / ${tx.filter(t=>t.status==="pending"&&!t.voided).length}`],["Khoản bị hủy (còn lưu trong sổ)",tx.filter(t=>t.voided).length],["Biểu quyết đã tạo trong kỳ",polls===null?"…":polls_in.length]],nt)}
-  ${orgBlock("Báo cáo hoạt động của Ban quản lý","Ban quản lý",[["Khoản thu, chi đã ghi",tx.filter(t=>!t.voided).length],["Lượt bảo trì, sửa chữa, kiểm định",mt.filter(m=>!["Sử dụng","Đề xuất"].includes(m.kind)).length],["Lượt đặt tiện ích đã duyệt",books===null?"…":bk.length]],nt)}
-  ${orgBlock("Báo cáo hoạt động của Đơn vị quản lý vận hành","Đơn vị quản lý vận hành",[],nt)}
+  ${orgBlock("Báo cáo hoạt động của Ban quản lý (đơn vị quản lý vận hành)","Ban quản lý",[["Khoản thu, chi đã ghi",tx.filter(t=>!t.voided).length],["Lượt bảo trì, sửa chữa, kiểm định",mt.filter(m=>!["Sử dụng","Đề xuất"].includes(m.kind)).length],["Lượt đặt tiện ích đã duyệt",books===null?"…":bk.length]],nt)}
   <section class="card rep-block"><h3>Tình hình thực hiện các biểu quyết</h3>${polls===null?'<p class="meta">Đang tải…</p>':impl.length?`<div class="list">${impl.map(p=>{const top=p.tally?p.options.slice().sort((a,b)=>(p.tally[b]||{units:0}).units-(p.tally[a]||{units:0}).units)[0]:"";return `<div class="item"><div class="t"><strong>${esc(p.title)}</strong><span>Kết quả: ${top?esc(top)+" ("+((p.tally[top]||{}).units||0)+"/"+p.voted+" căn)":"chưa công bố"}${p.implNote?" · "+esc(p.implNote):""}</span></div><span class="pill ${p.impl==="Đã thực hiện"?"good":p.impl==="Đang thực hiện"?"warn":"mute"}">${esc(p.impl||"Chưa cập nhật")}</span></div>`}).join("")}</div>`:'<p class="meta">Chưa có biểu quyết nào đã kết thúc.</p>'}</section>`;
 }
 

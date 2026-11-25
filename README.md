@@ -9,6 +9,8 @@ Trang web đơn giản để Ban quản trị chung cư The Vista An Phú quản
 - **Thông báo và kế hoạch** của Ban quản lý, Ban quản trị (ngày, tháng, năm), cư dân xem được.
 - **Hồ sơ tài sản**: nguồn gốc, lịch sử sử dụng và bảo trì, chứng từ, kế hoạch, bình luận của cư dân.
 - **Căn hộ** (chỉ Ban quản trị, Ban quản lý thấy), **đăng ký gửi xe** (cư dân chỉ thấy xe của căn mình, Ban quản lý duyệt) và **biểu quyết** mỗi căn một phiếu, tính theo số căn và diện tích.
+- **Tiện ích**: sân tennis, phòng cộng đồng… đặt chỗ theo khung giờ, tự chặn trùng giờ.
+- **Báo cáo** có thêm tổng hợp nhà thầu, hoạt động Ban quản lý, Ban quản trị và tiến độ thực hiện các biểu quyết.
 - **Báo cáo** tháng, quý, năm, in hoặc lưu PDF.
 - **Nhắc việc**: bảo trì, kiểm định, hết bảo hành; gửi email hằng ngày khi có người của Ban quản trị mở trang.
 - **Tài khoản riêng** (Trưởng ban, Kế toán), nhật ký thay đổi, hủy khoản thay cho xóa, khoản chi lớn cần Trưởng ban khác duyệt.

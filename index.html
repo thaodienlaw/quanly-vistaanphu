@@ -159,6 +159,7 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:cent
       <button data-tab="can-ho" id="tabUnits" hidden>Căn hộ</button>
       <button data-tab="gui-xe" id="tabVeh" hidden>Gửi xe</button>
       <button data-tab="bieu-quyet">Biểu quyết</button>
+      <button data-tab="tien-ich">Tiện ích</button>
       <button data-tab="bao-cao">Báo cáo</button>
       <button data-tab="gop-y" id="tabGopY" hidden>Góp ý nhận được</button>
       <button data-tab="quan-tri" id="tabAdm" hidden>Quản trị</button>
@@ -183,7 +184,7 @@ const MKINDS=["Bảo trì","Sửa chữa","Kiểm định","Sử dụng","Đề 
 const NTYPES=["Thông báo","Kế hoạch ngày","Kế hoạch tháng","Kế hoạch năm"];
 const NSTAT=["Dự kiến","Đang thực hiện","Hoàn thành"];
 const ROLES={admin:"Trưởng ban (toàn quyền)",editor:"Kế toán, Ban quản lý (nhập liệu)",viewer:"Cư dân (chỉ xem)"};
-const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","can-ho","gui-xe","bieu-quyet","bao-cao","gop-y","quan-tri"];
+const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","quan-tri"];
 const VTYPES=["Xe máy","Ô tô","Xe điện","Xe đạp"];
 const VSTAT=["Chờ duyệt","Đã duyệt","Từ chối","Ngừng"];
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -206,7 +207,7 @@ function opt(list,sel,all){return (all?`<option value="">${all}</option>`:"")+li
 
 /* ---------- dữ liệu và kết nối ---------- */
 let state={txns:[],assets:[],maints:[],notices:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};
-let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={};
+let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={}, facs=null, books=null;
 let filt={
   notice:{type:""},
   unit:{q:""},
@@ -244,7 +245,10 @@ const ERR={
   bad_plate:"Biển số chưa đúng định dạng (4 đến 15 ký tự, chữ, số, dấu chấm, gạch).",
   no_unit:"Tài khoản của bạn chưa gắn với căn hộ. Hãy nhờ Ban quản trị gắn căn hộ.",
   bad_unit:"Căn hộ này chưa có trong danh sách căn hộ.",
-  poll_closed:"Biểu quyết này đã đóng."
+  poll_closed:"Biểu quyết này đã đóng.",
+  slot_taken:"Khung giờ này đã có người đặt. Hãy chọn giờ khác.",
+  out_of_hours:"Giờ đặt nằm ngoài giờ mở cửa của tiện ích.",
+  bad_date:"Chỉ đặt được từ hôm nay đến 60 ngày tới."
 };
 function fail(e){
   if(e&&e.status===401&&e.code==="login"){me=null;render();toast("Phiên đăng nhập đã hết. Hãy đăng nhập lại.");return}
@@ -362,7 +366,7 @@ function render(){
   if(loaded<3){v.innerHTML='<div class="empty">Đang tải dữ liệu…</div>';return}
   let html="";
   if(hasSample()&&adm)html+='<div class="banner info"><span>Đang hiển thị dữ liệu mẫu để bạn xem thử cách dùng.</span><button class="btn small" data-act="clear-sample">Xóa dữ liệu mẫu</button></div>';
-  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"thu-chi":vTxns,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"quan-tri":vAdmin})[tab]();
+  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"tien-ich":vFacilities,"thu-chi":vTxns,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"quan-tri":vAdmin})[tab]();
   v.innerHTML=html;
   if(keep){const el=document.getElementById(keep.id);if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e)}catch(e){}}}
 }
@@ -506,6 +510,7 @@ function vReport(){
   <div class="rep-head"><h2>Báo cáo thu chi ${esc(rg.label.toLowerCase())}</h2><div class="meta">${esc(state.settings.name||"The Vista An Phú")} · từ ${vdate(rg.start)} đến ${vdate(rg.end)} · lập ngày ${vdate(today())}</div></div>
   <div class="grid2">${funds.map(f=>fundReport(f,rg)).join("")}</div>
   <section class="card rep-block"><h3>Bảo trì, sửa chữa, kiểm định trong kỳ</h3>${ms.length?`<div class="tablewrap" style="border:0"><table><thead><tr><th>Ngày</th><th>Tài sản</th><th>Nội dung</th><th>Đơn vị thực hiện</th><th class="r">Chi phí</th></tr></thead><tbody>${ms.map(m=>{const a=assetById(m.assetId);return `<tr><td class="num">${vdate(m.date)}</td><td>${a?esc(a.name):""}</td><td>${esc(m.kind||"Bảo trì")}: ${esc(m.title)}</td><td>${esc(m.vendor||"")}</td><td class="r num">${Number(m.cost)?money(m.cost):"—"}</td></tr>`}).join("")}</tbody><tfoot><tr><td colspan="4"><b>Tổng chi phí</b></td><td class="r num"><b>${money(sum(ms,m=>Number(m.cost)||0))}</b></td></tr></tfoot></table></div>`:'<p class="meta">Không có lần bảo trì nào trong kỳ.</p>'}</section>
+  ${activityReport(rg)}
   <div class="sign"><div>Người lập<br><br><br></div><div>Kế toán<br><br><br></div><div>Trưởng ban quản trị<br><br><br></div></div>`;
 }
 
@@ -632,8 +637,8 @@ function pollBlock(p){
   const st=p.closed?'<span class="pill mute">Đã chốt</span>':p.open?'<span class="pill good">Đang mở</span>':'<span class="pill mute">Hết hạn</span>';
   const res=p.tally?`<div style="display:grid;gap:8px;margin-top:10px">${p.options.map(o=>{const t=p.tally[o]||{units:0,area:0},pc=p.voted?Math.round(t.units/p.voted*100):0;return `<div><div style="display:flex;justify-content:space-between;gap:8px;font-size:14px"><span>${esc(o)}${p.myChoice===o?" (căn bạn chọn)":""}</span><span class="num">${t.units} căn · ${fnum(t.area)} m² · ${pc}%</span></div><div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden"><div style="width:${pc}%;height:100%;background:var(--accent)"></div></div></div>`}).join("")}<div class="meta num">Đã bỏ phiếu: ${p.voted}/${tot} căn (${tot?Math.round(p.voted/tot*100):0}%), ${fnum(p.votedArea)}/${fnum(totA)} m² (${totA?Math.round(p.votedArea/totA*100):0}% diện tích)</div></div>`:`<div class="meta" style="margin-top:8px">Kết quả hiển thị sau khi biểu quyết kết thúc. Đã có ${p.voted} căn bỏ phiếu.</div>`;
   const vote=(p.open&&myU)?`<div style="margin-top:10px"><div class="meta" style="margin-bottom:6px">${p.myChoice?"Bạn đã chọn “"+esc(p.myChoice)+"” cho căn "+esc(myU)+". Có thể đổi đến khi hết hạn.":"Căn "+esc(myU)+" chưa bỏ phiếu."}</div><div class="actions">${p.options.map(o=>`<button class="btn small ${p.myChoice===o?"primary":""}" data-act="poll-vote" data-id="${esc(p.id)}" data-opt="${esc(o)}">${esc(o)}</button>`).join("")}</div></div>`:(p.open&&!ed?'<div class="meta" style="margin-top:8px">Cần tài khoản gắn với căn hộ để bỏ phiếu. Liên hệ Ban quản trị.</div>':"");
-  return `<section class="card"><div class="head-row"><h3>${esc(p.title)} ${st}</h3><div class="actions">${ed&&p.open?`<button class="btn small" data-act="ballot-enter" data-id="${esc(p.id)}">Nhập phiếu giấy</button>`:""}${ed?`<button class="btn small" data-act="ballot-view" data-id="${esc(p.id)}">Xem phiếu</button>`:""}<button class="btn small" data-act="poll-edit" data-id="${esc(p.id)}" data-admin="1">Sửa</button><button class="btn small" data-act="poll-close" data-id="${esc(p.id)}" data-closed="${p.closed?0:1}" data-admin="1">${p.closed?"Mở lại":"Chốt"}</button><button class="btn small danger" data-act="poll-remove" data-id="${esc(p.id)}" data-admin="1">Xóa</button></div></div>
-  <div class="meta">${p.deadline?"Hạn bỏ phiếu: "+vdate(p.deadline)+" · ":""}Đăng bởi ${esc(p.byName||"")} · ${vtime(p.created)}</div>${p.body?`<p style="white-space:pre-wrap;margin:8px 0 0">${esc(p.body)}</p>`:""}${res}${vote}</section>`;
+  return `<section class="card"><div class="head-row"><h3>${esc(p.title)} ${st}</h3><div class="actions">${ed&&p.open?`<button class="btn small" data-act="ballot-enter" data-id="${esc(p.id)}">Nhập phiếu giấy</button>`:""}${ed?`<button class="btn small" data-act="ballot-view" data-id="${esc(p.id)}">Xem phiếu</button>`:""}${p.closed||!p.open?`<button class="btn small" data-act="poll-impl" data-id="${esc(p.id)}" data-admin="1">Tiến độ thực hiện</button>`:""}<button class="btn small" data-act="poll-edit" data-id="${esc(p.id)}" data-admin="1">Sửa</button><button class="btn small" data-act="poll-close" data-id="${esc(p.id)}" data-closed="${p.closed?0:1}" data-admin="1">${p.closed?"Mở lại":"Chốt"}</button><button class="btn small danger" data-act="poll-remove" data-id="${esc(p.id)}" data-admin="1">Xóa</button></div></div>
+  <div class="meta">${p.deadline?"Hạn bỏ phiếu: "+vdate(p.deadline)+" · ":""}Đăng bởi ${esc(p.byName||"")} · ${vtime(p.created)}</div>${p.body?`<p style="white-space:pre-wrap;margin:8px 0 0">${esc(p.body)}</p>`:""}${res}${(p.closed||!p.open)?`<div class="meta" style="margin-top:10px">Thực hiện nghị quyết: <span class="pill ${p.impl==="Đã thực hiện"?"good":p.impl==="Đang thực hiện"?"warn":"mute"}">${esc(p.impl||"Chưa cập nhật")}</span>${p.implNote?" "+esc(p.implNote):""}</div>`:""}${vote}</section>`;
 }
 function vPolls(){
   if(polls===null||(isEd()&&units===null)){loadPolls();return '<div class="empty">Đang tải…</div>'}
@@ -651,6 +656,94 @@ function pollForm(p){
   </div>${p?'<p style="margin:0;font-size:13px;color:var(--muted)">Đã có phiếu thì không đổi được các lựa chọn.</p>':""}`,async fd=>{
     try{await api("poll_save",{id:p?p.id:"",title:fd.get("title"),body:fd.get("body"),options:fd.get("options").split(/\r?\n/),deadline:fd.get("deadline")});polls=null;render()}catch(e){fail(e);return false}
   });
+}
+
+/* ---------- tiện ích và đặt chỗ ---------- */
+async function loadFac(){
+  try{const [f,b]=await Promise.all([api("facilities_list"),api("bookings_list")]);facs=f.items;books=b;if(isEd()&&units===null)units=(await api("units_list")).items}
+  catch(e){facs=facs||[];books=books||{items:[],myUnit:""};fail(e)}
+  render();
+}
+async function loadBooks(){try{books=await api("bookings_list")}catch(e){books={items:[],myUnit:""}}render()}
+const hhmm=t=>String(t||"").slice(0,5);
+function vFacilities(){
+  if(facs===null||books===null||(isEd()&&units===null)){loadFac();return '<div class="empty">Đang tải…</div>'}
+  const ed=isEd(),adm=isAdm(),myU=books.myUnit,td=today(),end7=ymd(new Date(Date.now()+7*864e5));
+  const canBook=ed||!!myU;
+  const fname=id=>(facs.find(f=>f.id===id)||{name:"(đã xóa)"}).name;
+  const cls=st=>st==="Đã duyệt"?"good":st==="Chờ duyệt"?"warn":st==="Hoàn thành"?"mute":"bad";
+  const pend=books.items.filter(b=>b.status==="Chờ duyệt"&&b.unit);
+  const mine=books.items.filter(b=>b.mine&&b.date>=td).sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
+  const cards=facs.filter(f=>f.active||adm).map(f=>{
+    const busy=books.items.filter(b=>b.facility===f.id&&["Chờ duyệt","Đã duyệt"].includes(b.status)&&b.date>=td&&b.date<=end7).sort((a,b)=>(a.date+a.start).localeCompare(b.date+b.start));
+    return `<section class="card"><div class="head-row"><h3>${esc(f.name)} ${f.active?"":'<span class="pill mute">Tạm ngưng</span>'}</h3><div class="actions">${canBook&&f.active?`<button class="btn small primary" data-act="book-new" data-id="${esc(f.id)}">Đặt chỗ</button>`:""}<button class="btn small" data-act="fac-edit" data-id="${esc(f.id)}" data-admin="1">Sửa</button><button class="btn small danger" data-act="fac-remove" data-id="${esc(f.id)}" data-admin="1">Xóa</button></div></div>
+    <div class="meta">${esc(f.kind||"")}${f.kind?" · ":""}Giờ mở cửa ${hhmm(f.openFrom)} đến ${hhmm(f.openTo)}${Number(f.auto)?" · Tự động xác nhận":" · Cần Ban quản lý duyệt"}</div>
+    ${f.rules?`<p style="margin:8px 0 0;white-space:pre-wrap;font-size:14px">${esc(f.rules)}</p>`:""}
+    <div class="meta" style="margin-top:10px">Đã có người đặt trong 7 ngày tới:</div>${busy.length?'<div class="list">'+busy.map(b=>`<div class="item"><div class="t"><strong>${vdate(b.date)} · ${hhmm(b.start)} đến ${hhmm(b.end)}</strong>${b.unit?`<span>Căn ${esc(b.unit)}</span>`:""}</div><span class="pill ${cls(b.status)}">${esc(b.status)}</span></div>`).join("")+"</div>":'<div class="meta">Chưa có.</div>'}</section>`}).join("");
+  return `<div class="head-row"><h2>Tiện ích</h2><button class="btn primary" data-act="fac-new" data-admin="1">+ Thêm tiện ích</button></div>
+  <div class="banner info">Đặt sân, phòng cộng đồng và các dịch vụ chung. ${canBook?"":"Cần tài khoản gắn với căn hộ để đặt chỗ; liên hệ Ban quản trị."}</div>
+  ${ed&&pend.length?`<section class="card"><h3>Chờ duyệt (${pend.length})</h3><div class="list">${pend.map(b=>`<div class="item"><div class="t"><strong>${esc(fname(b.facility))} · ${vdate(b.date)} ${hhmm(b.start)} đến ${hhmm(b.end)}</strong><span>Căn ${esc(b.unit)}${b.note?" · "+esc(b.note):""}</span></div><div class="actions"><button class="btn small primary" data-act="book-status" data-id="${esc(b.id)}" data-st="Đã duyệt">Duyệt</button><button class="btn small" data-act="book-status" data-id="${esc(b.id)}" data-st="Từ chối">Từ chối</button></div></div>`).join("")}</div></section>`:""}
+  ${mine.length?`<section class="card"><h3>Lịch đặt của căn ${esc(myU)}</h3><div class="list">${mine.map(b=>`<div class="item"><div class="t"><strong>${esc(fname(b.facility))} · ${vdate(b.date)} ${hhmm(b.start)} đến ${hhmm(b.end)}</strong></div><div class="actions"><span class="pill ${cls(b.status)}">${esc(b.status)}</span>${["Chờ duyệt","Đã duyệt"].includes(b.status)?`<button class="btn small danger" data-act="book-cancel" data-id="${esc(b.id)}">Hủy</button>`:""}</div></div>`).join("")}</div></section>`:""}
+  ${cards||'<div class="card empty">Chưa có tiện ích nào.'+(adm?" Bấm “Thêm tiện ích” để tạo sân tennis, phòng cộng đồng…":"")+"</div>"}`;
+}
+function facForm(f){
+  const cur=f||{name:"",kind:"",rules:"",openFrom:"06:00",openTo:"22:00",auto:0,active:1};
+  openModal(f?"Sửa tiện ích":"Thêm tiện ích",`<div class="fields">
+    ${F("fa-n","Tên tiện ích",`<input id="fa-n" name="name" required maxlength="100" value="${esc(cur.name)}" placeholder="vd: Sân tennis">`,"full")}
+    ${F("fa-k","Loại",`<input id="fa-k" name="kind" maxlength="40" value="${esc(cur.kind||"")}" placeholder="vd: Thể thao, Phòng sinh hoạt, Dịch vụ">`,"full")}
+    ${F("fa-f","Mở cửa từ",`<input id="fa-f" name="openFrom" type="time" required value="${esc(hhmm(cur.openFrom))}">`)}
+    ${F("fa-t","Đến",`<input id="fa-t" name="openTo" type="time" required value="${esc(hhmm(cur.openTo))}">`)}
+    ${F("fa-r","Quy định sử dụng, phí",`<textarea id="fa-r" name="rules" rows="4" maxlength="1000">${esc(cur.rules||"")}</textarea>`,"full")}
+    <label class="check full" for="fa-a"><input id="fa-a" name="auto" type="checkbox"${Number(cur.auto)?" checked":""}> Tự động xác nhận, không cần Ban quản lý duyệt</label>
+    <label class="check full" for="fa-v"><input id="fa-v" name="active" type="checkbox"${Number(cur.active)?" checked":""}> Đang cho đặt chỗ</label>
+  </div>`,async fd=>{
+    try{await api("facility_save",{id:f?f.id:"",name:fd.get("name"),kind:fd.get("kind"),rules:fd.get("rules"),openFrom:fd.get("openFrom"),openTo:fd.get("openTo"),auto:!!fd.get("auto"),active:!!fd.get("active")});facs=null;render()}catch(e){fail(e);return false}
+  });
+}
+function bookForm(fid){
+  const f=facs.find(x=>x.id===fid);
+  openModal("Đặt chỗ: "+f.name,`<div class="fields">
+    ${isEd()?F("bk-u","Căn hộ",`<input id="bk-u" name="unit" required list="ulist3" autocapitalize="characters"><datalist id="ulist3">${(units||[]).map(u=>`<option value="${esc(u.code)}">`).join("")}</datalist>`,"full"):""}
+    ${F("bk-d","Ngày",`<input id="bk-d" name="date" type="date" required min="${today()}" value="${today()}">`,"full")}
+    ${F("bk-s","Từ giờ",`<input id="bk-s" name="start" type="time" required value="${esc(hhmm(f.openFrom))}">`)}
+    ${F("bk-e","Đến giờ",`<input id="bk-e" name="end" type="time" required value="${esc(hhmm(f.openFrom).replace(/^(\d\d)/,x=>pad(Math.min(23,Number(x)+1))))}">`)}
+    ${F("bk-n","Ghi chú",`<input id="bk-n" name="note" maxlength="200" placeholder="vd: sinh nhật, 10 người">`,"full")}
+  </div><p style="margin:0;font-size:13px;color:var(--muted)">Giờ mở cửa ${hhmm(f.openFrom)} đến ${hhmm(f.openTo)}. ${Number(f.auto)?"Đặt xong được xác nhận ngay.":"Ban quản lý sẽ duyệt đặt chỗ của bạn."}</p>`,async fd=>{
+    try{const j=await api("booking_save",{facility:fid,unit:fd.get("unit")||"",date:fd.get("date"),start:fd.get("start"),end:fd.get("end"),note:fd.get("note")});books=null;render();toast(j.status==="Đã duyệt"?"Đã đặt chỗ thành công.":"Đã gửi đặt chỗ, chờ Ban quản lý duyệt.")}catch(e){fail(e);return false}
+  },"Đặt chỗ");
+}
+
+/* ---------- tổng hợp hoạt động (trong báo cáo) ---------- */
+function activityReport(rg){
+  if(polls===null){loadPolls();}
+  if(books===null){loadBooks();}
+  const inR=d=>d&&d>=rg.start&&d<=rg.end;
+  const key=v=>String(v||"").trim().toLowerCase();
+  const map={};
+  const add=(vendor,date,cost,what,kind)=>{const k=key(vendor);if(!k)return;const m=map[k]||(map[k]={name:vendor.trim(),n:0,sum:0,last:"",items:[]});m.n++;m.sum+=cost;if(date>m.last)m.last=date;if(m.items.length<3)m.items.push(what);};
+  state.maints.filter(m=>inR(m.date)).forEach(m=>add(m.vendor,m.date,Number(m.cost)||0,(m.kind||"Bảo trì")+": "+m.title));
+  state.txns.filter(t=>live(t)&&t.type==="out"&&inR(t.date)&&!t.maintId&&t.party).forEach(t=>add(t.party,t.date,t.amount,t.category));
+  const vendors=Object.values(map).sort((a,b)=>b.sum-a.sum);
+  const tx=state.txns.filter(t=>inR(t.date));
+  const mt=state.maints.filter(m=>inR(m.date));
+  const nt=state.notices.filter(n=>inR(n.date));
+  const plans=nt.filter(n=>n.type!=="Thông báo");
+  const pc=st=>plans.filter(n=>(n.status||"Dự kiến")===st).length;
+  const pl=polls&&polls.items?polls.items:[];
+  const polls_in=pl.filter(p=>{const d=new Date(p.created*1000);return inR(ymd(d))});
+  const bk=books&&books.items?books.items.filter(b=>inR(b.date)&&b.status==="Đã duyệt"||inR(b.date)&&b.status==="Hoàn thành"):[];
+  const impl=pl.filter(p=>p.closed||!p.open);
+  return `<section class="card rep-block"><h3>Nhà thầu, đơn vị cung cấp dịch vụ trong kỳ</h3>${vendors.length?`<div class="tablewrap" style="border:0"><table><thead><tr><th>Đơn vị</th><th class="r">Số việc</th><th class="r">Tổng chi</th><th>Gần nhất</th><th>Công việc</th></tr></thead><tbody>${vendors.map(v=>`<tr><td><strong>${esc(v.name)}</strong></td><td class="r num">${v.n}</td><td class="r num">${money(v.sum)}</td><td class="num">${vdate(v.last)}</td><td>${v.items.map(esc).join("; ")}${v.n>v.items.length?"…":""}</td></tr>`).join("")}</tbody></table></div>`:'<p class="meta">Không có đơn vị nào trong kỳ.</p>'}</section>
+  <section class="card rep-block"><h3>Hoạt động của Ban quản lý, Ban quản trị trong kỳ</h3><table class="rep"><tbody>
+    <tr><td>Khoản thu, chi đã ghi</td><td class="r num">${tx.filter(t=>!t.voided).length}</td></tr>
+    <tr><td>Khoản chi lớn đã được duyệt / đang chờ duyệt</td><td class="r num">${tx.filter(t=>t.approvedBy&&!t.voided).length} / ${tx.filter(t=>t.status==="pending"&&!t.voided).length}</td></tr>
+    <tr><td>Khoản bị hủy (còn lưu trong sổ)</td><td class="r num">${tx.filter(t=>t.voided).length}</td></tr>
+    <tr><td>Lượt bảo trì, sửa chữa, kiểm định</td><td class="r num">${mt.filter(m=>!["Sử dụng","Đề xuất"].includes(m.kind)).length}</td></tr>
+    <tr><td>Thông báo đã đăng</td><td class="r num">${nt.filter(n=>n.type==="Thông báo").length}</td></tr>
+    <tr><td>Kế hoạch: dự kiến / đang thực hiện / hoàn thành</td><td class="r num">${pc("Dự kiến")} / ${pc("Đang thực hiện")} / ${pc("Hoàn thành")}</td></tr>
+    <tr><td>Biểu quyết đã tạo trong kỳ</td><td class="r num">${polls===null?"…":polls_in.length}</td></tr>
+    <tr><td>Lượt đặt tiện ích đã duyệt</td><td class="r num">${books===null?"…":bk.length}</td></tr></tbody></table></section>
+  <section class="card rep-block"><h3>Tình hình thực hiện các biểu quyết</h3>${polls===null?'<p class="meta">Đang tải…</p>':impl.length?`<div class="list">${impl.map(p=>{const top=p.tally?p.options.slice().sort((a,b)=>(p.tally[b]||{units:0}).units-(p.tally[a]||{units:0}).units)[0]:"";return `<div class="item"><div class="t"><strong>${esc(p.title)}</strong><span>Kết quả: ${top?esc(top)+" ("+((p.tally[top]||{}).units||0)+"/"+p.voted+" căn)":"chưa công bố"}${p.implNote?" · "+esc(p.implNote):""}</span></div><span class="pill ${p.impl==="Đã thực hiện"?"good":p.impl==="Đang thực hiện"?"warn":"mute"}">${esc(p.impl||"Chưa cập nhật")}</span></div>`}).join("")}</div>`:'<p class="meta">Chưa có biểu quyết nào đã kết thúc.</p>'}</section>`;
 }
 
 /* ---------- góp ý nhận được ---------- */
@@ -979,6 +1072,18 @@ document.addEventListener("click",async e=>{
   else if(act==="veh-edit")vehForm(vehs.find(v=>v.id===id));
   else if(act==="veh-status"){try{await api("vehicle_status",{id,status:b.dataset.st});vehs=null;render()}catch(err){fail(err)}}
   else if(act==="veh-remove"){const v=vehs.find(x=>x.id===id);confirmBox("Xóa xe?",`Xóa xe ${esc(v.plate==="XE-DAP"?v.type:v.plate)} của căn ${esc(v.unit)}?`,"Xóa",async()=>{try{await api("vehicle_del",{id});vehs=null;render()}catch(err){fail(err);return false}})}
+  else if(act==="poll-impl"){
+    const p=polls.items.find(x=>x.id===id);
+    openModal("Tiến độ thực hiện",`<div class="fields">${F("pi-s","Tình trạng",`<select id="pi-s" name="impl">${opt(["Chưa thực hiện","Đang thực hiện","Đã thực hiện"],p.impl,"Chưa cập nhật")}</select>`,"full")}${F("pi-n","Ghi chú (đơn vị thực hiện, thời hạn, kết quả)",`<textarea id="pi-n" name="note" rows="4" maxlength="1000">${esc(p.implNote||"")}</textarea>`,"full")}</div><p style="margin:0;font-size:13px;color:var(--muted)">${esc(p.title)}</p>`,async fd=>{
+      try{await api("poll_impl",{id,impl:fd.get("impl"),note:fd.get("note")});polls=null;render()}catch(err){fail(err);return false}
+    });
+  }
+  else if(act==="fac-new")facForm();
+  else if(act==="fac-edit")facForm(facs.find(f=>f.id===id));
+  else if(act==="fac-remove"){const f=facs.find(x=>x.id===id);confirmBox("Xóa tiện ích?",`Xóa “${esc(f.name)}” và toàn bộ lịch đặt của tiện ích này?`,"Xóa",async()=>{try{await api("facility_del",{id});facs=null;books=null;render()}catch(err){fail(err);return false}})}
+  else if(act==="book-new")bookForm(id);
+  else if(act==="book-status"){try{await api("booking_status",{id,status:b.dataset.st});books=null;render()}catch(err){fail(err)}}
+  else if(act==="book-cancel"){try{await api("booking_cancel",{id});books=null;render()}catch(err){fail(err)}}
   else if(act==="poll-new")pollForm();
   else if(act==="poll-edit")pollForm(polls.items.find(p=>p.id===id));
   else if(act==="poll-close"){try{await api("poll_close",{id,closed:b.dataset.closed==="1"});polls=null;render()}catch(err){fail(err)}}
@@ -1025,7 +1130,7 @@ document.addEventListener("click",async e=>{
     const off=!state.meta.legacyOff;
     confirmBox(off?"Tắt mật khẩu chung?":"Bật lại mật khẩu chung?",off?"Sau khi tắt, Ban quản trị chỉ đăng nhập bằng tài khoản riêng. Người đang dùng mật khẩu chung vẫn làm việc được đến khi đăng xuất.":"Mật khẩu chung của Ban quản trị sẽ đăng nhập được trở lại.","Đồng ý",async()=>{try{await api("legacy_off",{off});state.meta.legacyOff=off;render()}catch(err){fail(err);return false}});
   }
-  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};loaded=0;state={txns:[],assets:[],maints:[],notices:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
+  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
   else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(err){fail(err)}})}
   else if(act==="goto-pending"){filt.txn.status="pending";location.hash="thu-chi";render()}
   else if(act==="print")window.print();
@@ -1053,7 +1158,7 @@ document.addEventListener("change",async e=>{
   }
 });
 document.addEventListener("keydown",e=>{if(e.key==="Escape"){filesCtx=null;detailCtx=null;closeModal()}});
-window.addEventListener("hashchange",()=>{const t=curTab();if(t==="gop-y")fb=null;if(t==="can-ho")units=null;if(t==="gui-xe"){vehs=null;units=null}if(t==="bieu-quyet"){polls=null;ballots={}}if(t==="quan-tri"){users=null;audit=null}render();window.scrollTo(0,0)});
+window.addEventListener("hashchange",()=>{const t=curTab();if(t==="gop-y")fb=null;if(t==="can-ho")units=null;if(t==="gui-xe"){vehs=null;units=null}if(t==="bieu-quyet"){polls=null;ballots={}}if(t==="tien-ich"){facs=null;books=null}if(t==="bao-cao"){polls=null;books=null}if(t==="quan-tri"){users=null;audit=null}render();window.scrollTo(0,0)});
 document.addEventListener("submit",async e=>{
   if(e.target.id!=="loginForm")return;
   e.preventDefault();
@@ -1061,7 +1166,7 @@ document.addEventListener("submit",async e=>{
   const fd=new FormData(e.target);
   try{
     me=await api("login",{username:fd.get("username"),password:fd.get("password")});
-    fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};
+    fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;
     await loadAll();render();
   }catch(err){
     me=null;btn.disabled=false;

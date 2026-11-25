@@ -47,6 +47,10 @@ $pdo->exec('CREATE TABLE IF NOT EXISTS vehicles (id TEXT PRIMARY KEY, unit TEXT 
 $pdo->exec('CREATE TABLE IF NOT EXISTS polls (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT, options TEXT NOT NULL, deadline TEXT, closed INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL, by_name TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS ballots (poll TEXT NOT NULL, unit TEXT NOT NULL, choice TEXT NOT NULL, ts INTEGER NOT NULL, by_name TEXT, PRIMARY KEY (poll, unit))');
 try { $pdo->exec('ALTER TABLE users ADD COLUMN unit TEXT'); } catch (Throwable $e) {}
+try { $pdo->exec('ALTER TABLE polls ADD COLUMN impl TEXT'); } catch (Throwable $e) {}
+try { $pdo->exec('ALTER TABLE polls ADD COLUMN impl_note TEXT'); } catch (Throwable $e) {}
+$pdo->exec('CREATE TABLE IF NOT EXISTS facilities (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT, rules TEXT, open_from TEXT, open_to TEXT, auto INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, facility TEXT NOT NULL, unit TEXT NOT NULL, date TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL, status TEXT NOT NULL, note TEXT, created INTEGER NOT NULL, by_name TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
 
 $a = (string)($_GET['a'] ?? '');
@@ -469,6 +473,8 @@ switch ($a) {
             'units' => $pdo->query('SELECT * FROM units')->fetchAll(PDO::FETCH_ASSOC),
             'vehicles' => $pdo->query('SELECT * FROM vehicles')->fetchAll(PDO::FETCH_ASSOC),
             'polls' => $pdo->query('SELECT * FROM polls')->fetchAll(PDO::FETCH_ASSOC),
+            'facilities' => $pdo->query('SELECT * FROM facilities')->fetchAll(PDO::FETCH_ASSOC),
+            'bookings' => $pdo->query('SELECT * FROM bookings')->fetchAll(PDO::FETCH_ASSOC),
             'ballots' => $pdo->query('SELECT * FROM ballots')->fetchAll(PDO::FETCH_ASSOC),
             'users' => $pdo->query('SELECT username, name, role, active FROM users')->fetchAll(PDO::FETCH_ASSOC),
         ];
@@ -515,10 +521,12 @@ switch ($a) {
         $pdo->exec("DELETE FROM docs WHERE col IN ('txns','assets','maints','notices','settings')");
         foreach ($clean as $d) setDoc($pdo, $d['col'], (string)$d['id'], $d['data']);
         if (isset($body['units']) && is_array($body['units'])) {
-            $pdo->exec('DELETE FROM units'); $pdo->exec('DELETE FROM vehicles'); $pdo->exec('DELETE FROM polls'); $pdo->exec('DELETE FROM ballots');
+            $pdo->exec('DELETE FROM units'); $pdo->exec('DELETE FROM vehicles'); $pdo->exec('DELETE FROM polls'); $pdo->exec('DELETE FROM ballots'); $pdo->exec('DELETE FROM facilities'); $pdo->exec('DELETE FROM bookings');
             foreach ($body['units'] as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO units (id, code, block, area, owner, phone, note) VALUES (?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['code'] ?? $r['id']), $r['block'] ?? '', (float)($r['area'] ?? 0), $r['owner'] ?? '', $r['phone'] ?? '', $r['note'] ?? '']);
             foreach (($body['vehicles'] ?? []) as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO vehicles (id, unit, type, plate, owner, status, note, created, by_name) VALUES (?,?,?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['unit'] ?? ''), (string)($r['type'] ?? 'Xe máy'), (string)($r['plate'] ?? ''), $r['owner'] ?? '', (string)($r['status'] ?? 'Đã duyệt'), $r['note'] ?? '', (int)($r['created'] ?? time()), $r['by_name'] ?? '']);
-            foreach (($body['polls'] ?? []) as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO polls (id, title, body, options, deadline, closed, created, by_name) VALUES (?,?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['title'] ?? ''), $r['body'] ?? '', (string)($r['options'] ?? '[]'), $r['deadline'] ?? '', (int)($r['closed'] ?? 0), (int)($r['created'] ?? time()), $r['by_name'] ?? '']);
+            foreach (($body['polls'] ?? []) as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO polls (id, title, body, options, deadline, closed, created, by_name, impl, impl_note) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['title'] ?? ''), $r['body'] ?? '', (string)($r['options'] ?? '[]'), $r['deadline'] ?? '', (int)($r['closed'] ?? 0), (int)($r['created'] ?? time()), $r['by_name'] ?? '', $r['impl'] ?? '', $r['impl_note'] ?? '']);
+            foreach (($body['facilities'] ?? []) as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO facilities (id, name, kind, rules, open_from, open_to, auto, active) VALUES (?,?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['name'] ?? ''), $r['kind'] ?? '', $r['rules'] ?? '', $r['open_from'] ?? '06:00', $r['open_to'] ?? '22:00', (int)($r['auto'] ?? 0), (int)($r['active'] ?? 1)]);
+            foreach (($body['bookings'] ?? []) as $r) if (is_array($r) && !empty($r['id'])) $pdo->prepare('INSERT OR REPLACE INTO bookings (id, facility, unit, date, start, end, status, note, created, by_name) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([(string)$r['id'], (string)($r['facility'] ?? ''), (string)($r['unit'] ?? ''), (string)($r['date'] ?? ''), (string)($r['start'] ?? ''), (string)($r['end'] ?? ''), (string)($r['status'] ?? 'Đã duyệt'), $r['note'] ?? '', (int)($r['created'] ?? time()), $r['by_name'] ?? '']);
             foreach (($body['ballots'] ?? []) as $r) if (is_array($r) && !empty($r['poll'])) $pdo->prepare('INSERT OR REPLACE INTO ballots (poll, unit, choice, ts, by_name) VALUES (?,?,?,?,?)')->execute([(string)$r['poll'], (string)($r['unit'] ?? ''), (string)($r['choice'] ?? ''), (int)($r['ts'] ?? time()), $r['by_name'] ?? '']);
         }
         $pdo->commit();
@@ -707,7 +715,7 @@ switch ($a) {
             $myChoice = null;
             if ($mine !== '') { $q = $pdo->prepare('SELECT choice FROM ballots WHERE poll = ? AND unit = ?'); $q->execute([$p['id'], $mine]); $myChoice = $q->fetchColumn() ?: null; }
             $show = $editor || !$open;
-            $items[] = ['id' => $p['id'], 'title' => $p['title'], 'body' => $p['body'], 'options' => $opts, 'deadline' => $p['deadline'], 'closed' => (int)$p['closed'], 'open' => $open, 'created' => (int)$p['created'], 'byName' => $p['by_name'],
+            $items[] = ['id' => $p['id'], 'title' => $p['title'], 'body' => $p['body'], 'options' => $opts, 'deadline' => $p['deadline'], 'closed' => (int)$p['closed'], 'impl' => (string)($p['impl'] ?? ''), 'implNote' => (string)($p['impl_note'] ?? ''), 'open' => $open, 'created' => (int)$p['created'], 'byName' => $p['by_name'],
                 'voted' => $voted, 'votedArea' => $votedArea, 'tally' => $show ? $tally : null, 'myChoice' => $myChoice];
         }
         out(200, ['items' => $items, 'myUnit' => $mine, 'totalUnits' => $totUnits, 'totalArea' => $totArea]);
@@ -779,6 +787,113 @@ switch ($a) {
         $who = actor();
         $pdo->prepare('INSERT INTO ballots (poll, unit, choice, ts, by_name) VALUES (?,?,?,?,?) ON CONFLICT(poll, unit) DO UPDATE SET choice = excluded.choice, ts = excluded.ts, by_name = excluded.by_name')->execute([$p['id'], $unit, $choice, time(), $who['name']]);
         audit($pdo, $editor ? 'nhập phiếu biểu quyết' : 'biểu quyết', 'polls', $p['id'], $p['title'] . ' · căn ' . $unit . ' · ' . $choice);
+        out(200, ['ok' => true]);
+    }
+
+
+    case 'poll_impl': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 3);
+        $st = (string)($body['impl'] ?? '');
+        if (!in_array($st, ['', 'Chưa thực hiện', 'Đang thực hiện', 'Đã thực hiện'], true)) out(400, ['error' => 'bad_request']);
+        $id = (string)($body['id'] ?? '');
+        $pdo->prepare('UPDATE polls SET impl = ?, impl_note = ? WHERE id = ?')->execute([$st, str($body, 'note', 1000), $id]);
+        audit($pdo, 'cập nhật tiến độ thực hiện nghị quyết', 'polls', $id, $st);
+        out(200, ['ok' => true]);
+    }
+
+    /* ----- tiện ích và đặt chỗ ----- */
+    case 'facilities_list': {
+        need($role, 1);
+        out(200, ['items' => $pdo->query('SELECT id, name, kind, rules, open_from AS openFrom, open_to AS openTo, auto, active FROM facilities ORDER BY name')->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
+    case 'facility_save': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 3);
+        $name = str($body, 'name', 100);
+        $of = (string)($body['openFrom'] ?? '06:00'); $ot = (string)($body['openTo'] ?? '22:00');
+        if ($name === '' || !preg_match('/^\d{2}:\d{2}$/', $of) || !preg_match('/^\d{2}:\d{2}$/', $ot) || $of >= $ot) out(400, ['error' => 'bad_request']);
+        $id = (string)($body['id'] ?? '');
+        $vals = [$name, str($body, 'kind', 40), str($body, 'rules', 1000), $of, $ot, !empty($body['auto']) ? 1 : 0, array_key_exists('active', $body) && empty($body['active']) ? 0 : 1];
+        if ($id !== '') $pdo->prepare('UPDATE facilities SET name = ?, kind = ?, rules = ?, open_from = ?, open_to = ?, auto = ?, active = ? WHERE id = ?')->execute(array_merge($vals, [$id]));
+        else { $id = 'f' . bin2hex(random_bytes(4)); $pdo->prepare('INSERT INTO facilities (name, kind, rules, open_from, open_to, auto, active, id) VALUES (?,?,?,?,?,?,?,?)')->execute(array_merge($vals, [$id])); }
+        audit($pdo, 'lưu tiện ích', 'facilities', $id, $name);
+        out(200, ['ok' => true, 'id' => $id]);
+    }
+
+    case 'facility_del': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 3);
+        $id = (string)($body['id'] ?? '');
+        $pdo->prepare('DELETE FROM bookings WHERE facility = ?')->execute([$id]);
+        $pdo->prepare('DELETE FROM facilities WHERE id = ?')->execute([$id]);
+        audit($pdo, 'xóa tiện ích', 'facilities', $id);
+        out(200, ['ok' => true]);
+    }
+
+    case 'bookings_list': {
+        need($role, 1);
+        $editor = $RANK[$role] >= 2; $mine = myUnit($pdo);
+        $from = date('Y-m-d', strtotime('-30 days'));
+        $s = $pdo->prepare('SELECT id, facility, unit, date, start, end, status, note, created, by_name AS byName FROM bookings WHERE date >= ? ORDER BY date, start'); $s->execute([$from]);
+        $items = [];
+        foreach ($s->fetchAll(PDO::FETCH_ASSOC) as $b) {
+            if ($editor || ($mine !== '' && $b['unit'] === $mine)) { $b['mine'] = $mine !== '' && $b['unit'] === $mine; $items[] = $b; }
+            elseif (in_array($b['status'], ['Chờ duyệt', 'Đã duyệt'], true)) $items[] = ['id' => $b['id'], 'facility' => $b['facility'], 'date' => $b['date'], 'start' => $b['start'], 'end' => $b['end'], 'status' => $b['status'], 'unit' => '', 'mine' => false];
+        }
+        out(200, ['items' => $items, 'myUnit' => $mine]);
+    }
+
+    case 'booking_save': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $editor = $RANK[$role] >= 2;
+        $unit = $editor ? normUnit((string)($body['unit'] ?? '')) : myUnit($pdo);
+        if ($unit === '') out(403, ['error' => 'no_unit']);
+        $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]);
+        if (!(int)$q->fetchColumn()) out(400, ['error' => 'bad_unit']);
+        $fs = $pdo->prepare('SELECT * FROM facilities WHERE id = ? AND active = 1'); $fs->execute([(string)($body['facility'] ?? '')]);
+        $f = $fs->fetch(PDO::FETCH_ASSOC);
+        if (!$f) out(404, ['error' => 'not_found']);
+        $date = (string)($body['date'] ?? ''); $st = (string)($body['start'] ?? ''); $en = (string)($body['end'] ?? '');
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || !preg_match('/^\d{2}:\d{2}$/', $st) || !preg_match('/^\d{2}:\d{2}$/', $en) || $st >= $en) out(400, ['error' => 'bad_request']);
+        if (!$editor && ($date < date('Y-m-d') || $date > date('Y-m-d', strtotime('+60 days')))) out(400, ['error' => 'bad_date']);
+        if ($st < $f['open_from'] || $en > $f['open_to']) out(400, ['error' => 'out_of_hours']);
+        $c = $pdo->prepare("SELECT COUNT(*) FROM bookings WHERE facility = ? AND date = ? AND status IN ('Chờ duyệt','Đã duyệt') AND start < ? AND end > ?");
+        $c->execute([$f['id'], $date, $en, $st]);
+        if ((int)$c->fetchColumn() > 0) out(409, ['error' => 'slot_taken']);
+        if (!$editor && hits($pdo, 'booking', $ip, 3600) >= 15) out(429, ['error' => 'too_many']);
+        $id = 'b' . bin2hex(random_bytes(5));
+        $status = ($editor || (int)$f['auto'] === 1) ? 'Đã duyệt' : 'Chờ duyệt';
+        $who = actor();
+        $pdo->prepare('INSERT INTO bookings (id, facility, unit, date, start, end, status, note, created, by_name) VALUES (?,?,?,?,?,?,?,?,?,?)')->execute([$id, $f['id'], $unit, $date, $st, $en, $status, str($body, 'note', 200), time(), $who['name']]);
+        addHit($pdo, 'booking', $ip);
+        audit($pdo, 'đặt tiện ích', 'bookings', $id, $f['name'] . " · căn $unit · $date $st-$en ($status)");
+        out(200, ['ok' => true, 'status' => $status]);
+    }
+
+    case 'booking_status': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 2);
+        $stt = (string)($body['status'] ?? '');
+        if (!in_array($stt, ['Chờ duyệt', 'Đã duyệt', 'Từ chối', 'Đã hủy', 'Hoàn thành'], true)) out(400, ['error' => 'bad_request']);
+        $id = (string)($body['id'] ?? '');
+        $pdo->prepare('UPDATE bookings SET status = ? WHERE id = ?')->execute([$stt, $id]);
+        audit($pdo, 'đổi trạng thái đặt tiện ích', 'bookings', $id, $stt);
+        out(200, ['ok' => true]);
+    }
+
+    case 'booking_cancel': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        need($role, 1);
+        $id = (string)($body['id'] ?? '');
+        $s = $pdo->prepare('SELECT * FROM bookings WHERE id = ?'); $s->execute([$id]);
+        $b = $s->fetch(PDO::FETCH_ASSOC);
+        if (!$b) out(404, ['error' => 'not_found']);
+        if ($RANK[$role] < 2 && $b['unit'] !== myUnit($pdo)) out(403, ['error' => 'forbidden']);
+        $pdo->prepare("UPDATE bookings SET status = 'Đã hủy' WHERE id = ?")->execute([$id]);
+        audit($pdo, 'hủy đặt tiện ích', 'bookings', $id, $b['date'] . ' ' . $b['start']);
         out(200, ['ok' => true]);
     }
 

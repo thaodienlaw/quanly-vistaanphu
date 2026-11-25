@@ -116,6 +116,16 @@ function emails(array $settings): array {
     $list = preg_split('/[\s,;]+/', (string)($settings['notifyEmails'] ?? ''), -1, PREG_SPLIT_NO_EMPTY) ?: [];
     return array_values(array_filter($list, fn($e) => filter_var($e, FILTER_VALIDATE_EMAIL)));
 }
+function githubIssue(array $cfg, string $kind, string $msg): void {
+    $tok = (string)($cfg['github_token'] ?? ''); $repo = (string)($cfg['github_repo'] ?? '');
+    if ($tok === '' || !preg_match('#^[\w.-]+/[\w.-]+$#', $repo)) return;
+    // Chỉ đăng nội dung góp ý: không có tên, liên hệ hay IP (repo công khai).
+    $title = $kind . ': ' . mb_substr(preg_replace('/\s+/u', ' ', $msg), 0, 70);
+    $payload = json_encode(['title' => $title, 'body' => "**Loại:** $kind\n**Ngày:** " . date('d/m/Y H:i') . "\n\n" . $msg . "\n\n_(Gửi tự động từ trang quản lý; đã lược tên và liên hệ.)_", 'labels' => ['góp ý']], JSON_UNESCAPED_UNICODE);
+    $ctx = stream_context_create(['http' => ['method' => 'POST', 'timeout' => 6, 'ignore_errors' => true,
+        'header' => "Authorization: Bearer $tok\r\nAccept: application/vnd.github+json\r\nUser-Agent: quanly-vistaanphu\r\nContent-Type: application/json\r\n", 'content' => $payload]]);
+    @file_get_contents("https://api.github.com/repos/$repo/issues", false, $ctx);
+}
 function sendMail(array $to, string $subject, string $body): void {
     if (!$to) return;
     $host = preg_replace('/[^a-z0-9.-]/i', '', (string)($_SERVER['HTTP_HOST'] ?? 'localhost')) ?: 'localhost';
@@ -490,6 +500,7 @@ switch ($a) {
         try {
             sendMail(emails(settingsDoc($pdo)), '[The Vista An Phú] Góp ý mới: ' . $kind, "Loại: $kind\r\nTừ: " . (str($body, 'name', 100) ?: '(ẩn danh)') . ' ' . str($body, 'contact', 120) . "\r\n\r\n$msg\r\n\r\nXem tại tab \"Góp ý nhận được\" trên trang quản lý.");
         } catch (Throwable $e) {}
+        try { githubIssue($cfg, $kind, $msg); } catch (Throwable $e) {}
         out(200, ['ok' => true]);
     }
 

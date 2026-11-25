@@ -8,4 +8,7 @@ return [
     'editor_hash' => '',
     // Mật khẩu của cư dân: chỉ xem. Để trống nếu không cho cư dân xem.
     'viewer_hash' => '',
+    // Tùy chọn: tự tạo Issue GitHub cho mỗi góp ý mới. Dùng khóa (fine-grained token) chỉ có quyền Issues: Read and write cho đúng repo này.
+    'github_repo' => '',   // ví dụ 'thaodienlaw/quanly-vistaanphu'
+    'github_token' => '',
 ];

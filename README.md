@@ -55,3 +55,17 @@ Chạy thử trên máy: `php -S 127.0.0.1:8080` rồi mở http://127.0.0.1:808
 ## Giấy phép
 
 MIT, xem [LICENSE](LICENSE).
+
+## Phân quyền
+
+| Vai trò | Quyền chính |
+|---|---|
+| Cư dân | Xem số liệu chung, bình luận, biểu quyết, đăng ký xe và tiện ích của căn mình |
+| Kế toán | Ghi, sửa, hủy thu chi và chứng từ; không duyệt chi |
+| Ban quản lý (đơn vị vận hành) | Thu chi, tài sản, bảo trì, nhà thầu, thông báo, báo cáo, duyệt gửi xe và tiện ích, quản lý tiện ích |
+| Ban quản trị | Duyệt chi lớn, biểu quyết, danh sách căn hộ, tiện ích, nhật ký; không ghi thu chi |
+| Ban kiểm tra | Chỉ xem toàn bộ, kể cả nhật ký |
+| Trưởng ban (admin) | Toàn quyền, tài khoản, cài đặt, sao lưu |
+| Kế toán, Ban quản lý (vai trò cũ) | Giữ nguyên quyền như trước khi tách vai trò |
+
+Người ghi khoản chi lớn không tự duyệt được khoản đó. Quyền được kiểm tra ở máy chủ (`$CAPS` trong api.php), giao diện chỉ ẩn nút cho gọn.

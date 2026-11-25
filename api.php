@@ -57,7 +57,18 @@ $a = (string)($_GET['a'] ?? '');
 $method = $_SERVER['REQUEST_METHOD'];
 $role = $_SESSION['role'] ?? null;
 $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
-$RANK = ['viewer' => 1, 'editor' => 2, 'admin' => 3];
+$RANK = ['viewer' => 1, 'auditor' => 1, 'accountant' => 2, 'manager' => 2, 'board' => 2, 'editor' => 2, 'admin' => 3];
+// Quyền theo từng việc. editor = vai trò cũ (Kế toán/Ban quản lý), giữ nguyên quyền như trước.
+$CAPS = [
+    'seeall'   => ['editor', 'admin', 'accountant', 'manager', 'board', 'auditor'], // xem hồ sơ nhà thầu, căn hộ, xe, phiếu, tệp hợp đồng
+    'manage'   => ['editor', 'admin', 'manager', 'board'],                           // tài sản, bảo trì, nhà thầu, thông báo, báo cáo, duyệt xe và tiện ích
+    'txn'      => ['editor', 'admin', 'accountant', 'manager'],                      // ghi, sửa, hủy thu chi và chứng từ thu chi
+    'approve'  => ['admin', 'board'],                                                // duyệt chi lớn (không tự duyệt khoản mình ghi)
+    'govern'   => ['admin', 'board'],                                                // biểu quyết, danh sách căn hộ
+    'facility' => ['admin', 'board', 'manager'],                                     // tiện ích
+    'audit'    => ['admin', 'board', 'auditor'],                                     // nhật ký thay đổi
+    'system'   => ['admin'],                                                         // tài khoản, cài đặt, sao lưu, khôi phục
+];
 $COLS = ['txns', 'assets', 'maints', 'notices', 'vendors', 'vratings', 'settings'];
 $ID_RE = '/^[A-Za-z0-9_.:@+~-]{1,100}$/';
 
@@ -66,6 +77,14 @@ function need(?string $role, int $min): void {
     global $RANK;
     if (!$role) out(401, ['error' => 'login']);
     if ($RANK[$role] < $min) out(403, ['error' => 'forbidden']);
+}
+function can(?string $role, string $cap): bool {
+    global $CAPS;
+    return $role !== null && in_array($role, $CAPS[$cap] ?? [], true);
+}
+function needCap(?string $role, string $cap): void {
+    if (!$role) out(401, ['error' => 'login']);
+    if (!can($role, $cap)) out(403, ['error' => 'forbidden']);
 }
 function actor(): array {
     return ['id' => $_SESSION['uid'] ?? 'legacy', 'name' => $_SESSION['name'] ?? '(mật khẩu chung)'];
@@ -276,27 +295,28 @@ switch ($a) {
             if ($r['col'] === 'settings') { if ($r['id'] === 'main') $res['settings'] = $d; continue; }
             if (isset($res[$r['col']])) { $d['id'] = $r['id']; $res[$r['col']][] = $d; }
         }
-        if ($RANK[$role] < 2) {   // cư dân: ẩn giá trị hợp đồng, ghi chú đánh giá, tệp hợp đồng
+        if (!can($role, 'seeall')) {   // cư dân: ẩn giá trị hợp đồng, ghi chú đánh giá, tệp hợp đồng
             foreach ($res['vendors'] as &$vv) { unset($vv['contractValue'], $vv['phone'], $vv['email'], $vv['note']); } unset($vv);
             foreach ($res['vratings'] as &$vr) { unset($vr['note']); } unset($vr);
         }
         $res['comments'] = $pdo->query('SELECT id, asset_id AS assetId, name, text, uid, ts FROM comments ORDER BY id DESC LIMIT 2000')->fetchAll(PDO::FETCH_ASSOC);
         $res['files'] = $pdo->query('SELECT id, name, mime, size, ref_col AS col, ref_id AS ref, ts FROM files ORDER BY ts')->fetchAll(PDO::FETCH_ASSOC);
-        if ($RANK[$role] < 2) $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'vendors'));
+        if (!can($role, 'seeall')) $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'vendors'));
         $res['meta'] = ['lastExport' => metaGet($pdo, 'last_export'), 'legacyOff' => metaGet($pdo, 'legacy_off') === '1'];
-        if ($RANK[$role] >= 2) { try { maybeRemind($pdo); } catch (Throwable $e) {} }
+        if (can($role, 'manage')) { try { maybeRemind($pdo); } catch (Throwable $e) {} }
         out(200, $res);
     }
 
     case 'put': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        need($role, 1);
         $col = (string)($body['col'] ?? ''); $id = (string)($body['id'] ?? ''); $data = $body['data'] ?? null;
         if (!in_array($col, $COLS, true) || !preg_match($ID_RE, $id) || !is_array($data)) out(400, ['error' => 'bad_request']);
+        needCap($role, $col === 'settings' ? 'system' : ($col === 'txns' ? 'txn' : 'manage'));
         unset($data['id']);
         $old = getDoc($pdo, $col, $id);
         if ($col === 'settings') {
-            need($role, 3);
+            needCap($role, 'system');
             if ($id !== 'main') out(400, ['error' => 'bad_request']);
             $data = [
                 'name' => mb_substr((string)($data['name'] ?? ''), 0, 120),
@@ -358,7 +378,7 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         $col = (string)($body['col'] ?? ''); $id = (string)($body['id'] ?? '');
         if (!in_array($col, $COLS, true) || !preg_match($ID_RE, $id)) out(400, ['error' => 'bad_request']);
-        need($role, in_array($col, ['assets', 'maints', 'notices', 'vendors', 'vratings'], true) ? 2 : 3);
+        needCap($role, in_array($col, ['assets', 'maints', 'notices', 'vendors', 'vratings'], true) ? 'manage' : 'system');
         $old = getDoc($pdo, $col, $id);
         $pdo->prepare('DELETE FROM docs WHERE col = ? AND id = ?')->execute([$col, $id]);
         if ($old) audit($pdo, 'xóa', $col, $id, summ($col, $old), $old);
@@ -367,7 +387,7 @@ switch ($a) {
 
     case 'void': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        needCap($role, 'txn');
         $id = (string)($body['id'] ?? '');
         $d = preg_match($ID_RE, $id) ? getDoc($pdo, 'txns', $id) : null;
         if (!$d) out(404, ['error' => 'not_found']);
@@ -384,7 +404,7 @@ switch ($a) {
 
     case 'approve': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'approve');
         $id = (string)($body['id'] ?? '');
         $d = preg_match($ID_RE, $id) ? getDoc($pdo, 'txns', $id) : null;
         if (!$d || !empty($d['voided']) || ($d['status'] ?? '') !== 'pending') out(404, ['error' => 'not_pending']);
@@ -399,7 +419,7 @@ switch ($a) {
 
     case 'passwd': {   // mật khẩu chung (không dùng tài khoản riêng)
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'system');
         $rl = (string)($body['role'] ?? ''); $np = (string)($body['password'] ?? '');
         if (!in_array($rl, ['editor', 'viewer'], true) || mb_strlen($np) < 8 || mb_strlen($np) > 100) out(400, ['error' => 'bad_password_format']);
         $pdo->prepare('INSERT INTO auth (role, hash) VALUES (?,?) ON CONFLICT(role) DO UPDATE SET hash = excluded.hash')->execute([$rl, password_hash($np, PASSWORD_DEFAULT)]);
@@ -409,7 +429,7 @@ switch ($a) {
 
     case 'mypasswd': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        need($role, 1);
         $uid = $_SESSION['uid'] ?? null;
         if (!$uid) out(400, ['error' => 'no_account']);
         $s = $pdo->prepare('SELECT hash FROM users WHERE id = ?'); $s->execute([$uid]);
@@ -423,13 +443,13 @@ switch ($a) {
     }
 
     case 'users_list': {
-        need($role, 3);
+        needCap($role, 'system');
         out(200, ['items' => $pdo->query('SELECT id, username, name, role, active, created, unit FROM users ORDER BY created')->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     case 'user_save': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'system');
         $id = (string)($body['id'] ?? '');
         $name = str($body, 'name', 80);
         $rl = (string)($body['role'] ?? 'editor');
@@ -437,7 +457,7 @@ switch ($a) {
         $pw = (string)($body['password'] ?? '');
         $unit = normUnit((string)($body['unit'] ?? ''));
         if ($unit !== '') { $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]); if (!(int)$q->fetchColumn()) out(400, ['error' => 'bad_unit']); }
-        if ($name === '' || !in_array($rl, ['admin', 'editor', 'viewer'], true)) out(400, ['error' => 'bad_request']);
+        if ($name === '' || !in_array($rl, ['admin', 'board', 'manager', 'accountant', 'auditor', 'editor', 'viewer'], true)) out(400, ['error' => 'bad_request']);
         if ($pw !== '' && (mb_strlen($pw) < 8 || mb_strlen($pw) > 100)) out(400, ['error' => 'bad_password_format']);
         if ($id === '') {
             $un = strtolower(str($body, 'username', 30));
@@ -465,7 +485,7 @@ switch ($a) {
 
     case 'legacy_off': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'system');
         $off = !empty($body['off']);
         if ($off && (int)$pdo->query("SELECT COUNT(*) FROM users WHERE active = 1 AND role = 'admin'")->fetchColumn() < 1) out(409, ['error' => 'no_admin']);
         metaSet($pdo, 'legacy_off', $off ? '1' : '0');
@@ -474,12 +494,12 @@ switch ($a) {
     }
 
     case 'audit_list': {
-        need($role, 3);
+        needCap($role, 'audit');
         out(200, ['items' => $pdo->query('SELECT id, ts, actor, action, col, doc, summary FROM audit ORDER BY id DESC LIMIT 400')->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     case 'export': {
-        need($role, 3);
+        needCap($role, 'system');
         $docs = [];
         foreach ($pdo->query('SELECT col, id, data FROM docs') as $r) $docs[] = ['col' => $r['col'], 'id' => $r['id'], 'data' => json_decode($r['data'], true)];
         $payload = [
@@ -505,7 +525,7 @@ switch ($a) {
     }
 
     case 'export_files': {
-        need($role, 3);
+        needCap($role, 'system');
         if (!class_exists('ZipArchive')) out(501, ['error' => 'no_zip']);
         $tmp = tempnam(sys_get_temp_dir(), 'vap');
         $zip = new ZipArchive();
@@ -527,7 +547,7 @@ switch ($a) {
 
     case 'import': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'system');
         $docs = $body['docs'] ?? null;
         if (!is_array($docs) || count($docs) > 20000 || ($body['app'] ?? '') !== 'quanly-vistaanphu') out(400, ['error' => 'bad_file']);
         $clean = [];
@@ -590,7 +610,7 @@ switch ($a) {
 
     case 'comment_del': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        needCap($role, 'manage');
         $pdo->prepare('DELETE FROM comments WHERE id = ?')->execute([(int)($body['id'] ?? 0)]);
         audit($pdo, 'xóa bình luận', 'comments', (string)(int)($body['id'] ?? 0));
         out(200, ['ok' => true]);
@@ -599,13 +619,13 @@ switch ($a) {
 
     /* ----- căn hộ, gửi xe, biểu quyết ----- */
     case 'units_list': {
-        need($role, 2);
+        needCap($role, 'seeall');
         out(200, ['items' => $pdo->query('SELECT id, code, block, area, owner, phone, note FROM units ORDER BY code')->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     case 'unit_save': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        needCap($role, 'manage');
         $code = normUnit(str($body, 'code', 20));
         if (!preg_match('/^[A-Z0-9._\/-]{1,20}$/', $code)) out(400, ['error' => 'bad_request']);
         $pdo->prepare('INSERT INTO units (id, code, block, area, owner, phone, note) VALUES (?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET block = excluded.block, area = excluded.area, owner = excluded.owner, phone = excluded.phone, note = excluded.note')
@@ -616,7 +636,7 @@ switch ($a) {
 
     case 'units_import': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'govern');
         $rows = $body['rows'] ?? null;
         if (!is_array($rows) || count($rows) > 2000) out(400, ['error' => 'bad_request']);
         $n = 0;
@@ -636,7 +656,7 @@ switch ($a) {
 
     case 'unit_del': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'govern');
         $id = normUnit((string)($body['id'] ?? ''));
         $pdo->prepare('DELETE FROM units WHERE id = ?')->execute([$id]);
         $pdo->prepare("UPDATE users SET unit = '' WHERE unit = ?")->execute([$id]);
@@ -654,7 +674,7 @@ switch ($a) {
 
     case 'vehicles_list': {
         need($role, 1);
-        if ($RANK[$role] >= 2) { $rows = $pdo->query('SELECT * FROM vehicles ORDER BY unit, created')->fetchAll(PDO::FETCH_ASSOC); }
+        if (can($role, 'seeall')) { $rows = $pdo->query('SELECT * FROM vehicles ORDER BY unit, created')->fetchAll(PDO::FETCH_ASSOC); }
         else {
             $u = myUnit($pdo);
             if ($u === '') out(200, ['items' => []]);
@@ -667,7 +687,7 @@ switch ($a) {
     case 'vehicle_save': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         need($role, 1);
-        $editor = $RANK[$role] >= 2;
+        $editor = can($role, 'manage');
         $unit = $editor ? normUnit((string)($body['unit'] ?? '')) : myUnit($pdo);
         if ($unit === '') out(403, ['error' => 'no_unit']);
         $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]);
@@ -695,7 +715,7 @@ switch ($a) {
 
     case 'vehicle_status': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        needCap($role, 'manage');
         $st = (string)($body['status'] ?? '');
         if (!in_array($st, ['Chờ duyệt', 'Đã duyệt', 'Từ chối', 'Ngừng'], true)) out(400, ['error' => 'bad_request']);
         $id = (string)($body['id'] ?? '');
@@ -711,7 +731,7 @@ switch ($a) {
         $s = $pdo->prepare('SELECT * FROM vehicles WHERE id = ?'); $s->execute([$id]);
         $v = $s->fetch(PDO::FETCH_ASSOC);
         if (!$v) out(200, ['ok' => true]);
-        if ($RANK[$role] < 2 && ($v['unit'] !== myUnit($pdo) || $v['status'] !== 'Chờ duyệt')) out(403, ['error' => 'forbidden']);
+        if (!can($role, 'manage') && ($v['unit'] !== myUnit($pdo) || $v['status'] !== 'Chờ duyệt')) out(403, ['error' => 'forbidden']);
         $pdo->prepare('DELETE FROM vehicles WHERE id = ?')->execute([$id]);
         audit($pdo, 'xóa xe gửi', 'vehicles', $id, $v['unit'] . ' · ' . $v['type'] . ' ' . $v['plate']);
         out(200, ['ok' => true]);
@@ -719,7 +739,7 @@ switch ($a) {
 
     case 'polls_list': {
         need($role, 1);
-        $editor = $RANK[$role] >= 2;
+        $editor = can($role, 'seeall');
         $mine = myUnit($pdo);
         $totUnits = (int)$pdo->query('SELECT COUNT(*) FROM units')->fetchColumn();
         $totArea = (float)$pdo->query('SELECT COALESCE(SUM(area),0) FROM units')->fetchColumn();
@@ -744,7 +764,7 @@ switch ($a) {
 
     case 'poll_save': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'govern');
         $title = str($body, 'title', 200);
         $opts = [];
         foreach ((array)($body['options'] ?? []) as $o) { $o = mb_substr(trim((string)$o), 0, 100); if ($o !== '' && !in_array($o, $opts, true)) $opts[] = $o; }
@@ -767,7 +787,7 @@ switch ($a) {
 
     case 'poll_close': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'govern');
         $id = (string)($body['id'] ?? '');
         $pdo->prepare('UPDATE polls SET closed = ? WHERE id = ?')->execute([!empty($body['closed']) ? 1 : 0, $id]);
         audit($pdo, !empty($body['closed']) ? 'chốt biểu quyết' : 'mở lại biểu quyết', 'polls', $id);
@@ -776,7 +796,7 @@ switch ($a) {
 
     case 'poll_del': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'govern');
         $id = (string)($body['id'] ?? '');
         $pdo->prepare('DELETE FROM ballots WHERE poll = ?')->execute([$id]);
         $pdo->prepare('DELETE FROM polls WHERE id = ?')->execute([$id]);
@@ -785,7 +805,7 @@ switch ($a) {
     }
 
     case 'ballots_list': {
-        need($role, 2);
+        needCap($role, 'seeall');
         $s = $pdo->prepare('SELECT b.unit, b.choice, b.ts, b.by_name, u.area FROM ballots b LEFT JOIN units u ON u.id = b.unit WHERE b.poll = ? ORDER BY b.unit');
         $s->execute([(string)($_GET['poll'] ?? '')]);
         out(200, ['items' => $s->fetchAll(PDO::FETCH_ASSOC)]);
@@ -794,7 +814,7 @@ switch ($a) {
     case 'ballot_cast': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         need($role, 1);
-        $editor = $RANK[$role] >= 2;
+        $editor = can($role, 'manage');
         $unit = $editor ? normUnit((string)($body['unit'] ?? '')) : myUnit($pdo);
         if ($unit === '') out(403, ['error' => 'no_unit']);
         $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]);
@@ -814,7 +834,7 @@ switch ($a) {
 
     case 'poll_impl': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'govern');
         $st = (string)($body['impl'] ?? '');
         if (!in_array($st, ['', 'Chưa thực hiện', 'Đang thực hiện', 'Đã thực hiện'], true)) out(400, ['error' => 'bad_request']);
         $id = (string)($body['id'] ?? '');
@@ -831,7 +851,7 @@ switch ($a) {
 
     case 'facility_save': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'facility');
         $name = str($body, 'name', 100);
         $of = (string)($body['openFrom'] ?? '06:00'); $ot = (string)($body['openTo'] ?? '22:00');
         if ($name === '' || !preg_match('/^\d{2}:\d{2}$/', $of) || !preg_match('/^\d{2}:\d{2}$/', $ot) || $of >= $ot) out(400, ['error' => 'bad_request']);
@@ -845,7 +865,7 @@ switch ($a) {
 
     case 'facility_del': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 3);
+        needCap($role, 'facility');
         $id = (string)($body['id'] ?? '');
         $pdo->prepare('DELETE FROM bookings WHERE facility = ?')->execute([$id]);
         $pdo->prepare('DELETE FROM facilities WHERE id = ?')->execute([$id]);
@@ -855,7 +875,7 @@ switch ($a) {
 
     case 'bookings_list': {
         need($role, 1);
-        $editor = $RANK[$role] >= 2; $mine = myUnit($pdo);
+        $editor = can($role, 'seeall'); $mine = myUnit($pdo);
         $from = date('Y-m-d', strtotime('-30 days'));
         $s = $pdo->prepare('SELECT id, facility, unit, date, start, end, status, note, created, by_name AS byName FROM bookings WHERE date >= ? ORDER BY date, start'); $s->execute([$from]);
         $items = [];
@@ -869,7 +889,7 @@ switch ($a) {
     case 'booking_save': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         need($role, 1);
-        $editor = $RANK[$role] >= 2;
+        $editor = can($role, 'manage');
         $unit = $editor ? normUnit((string)($body['unit'] ?? '')) : myUnit($pdo);
         if ($unit === '') out(403, ['error' => 'no_unit']);
         $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]);
@@ -896,7 +916,7 @@ switch ($a) {
 
     case 'booking_status': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        needCap($role, 'manage');
         $stt = (string)($body['status'] ?? '');
         if (!in_array($stt, ['Chờ duyệt', 'Đã duyệt', 'Từ chối', 'Đã hủy', 'Hoàn thành'], true)) out(400, ['error' => 'bad_request']);
         $id = (string)($body['id'] ?? '');
@@ -912,28 +932,29 @@ switch ($a) {
         $s = $pdo->prepare('SELECT * FROM bookings WHERE id = ?'); $s->execute([$id]);
         $b = $s->fetch(PDO::FETCH_ASSOC);
         if (!$b) out(404, ['error' => 'not_found']);
-        if ($RANK[$role] < 2 && $b['unit'] !== myUnit($pdo)) out(403, ['error' => 'forbidden']);
+        if (!can($role, 'manage') && $b['unit'] !== myUnit($pdo)) out(403, ['error' => 'forbidden']);
         $pdo->prepare("UPDATE bookings SET status = 'Đã hủy' WHERE id = ?")->execute([$id]);
         audit($pdo, 'hủy đặt tiện ích', 'bookings', $id, $b['date'] . ' ' . $b['start']);
         out(200, ['ok' => true]);
     }
 
     case 'feedback_list': {
-        need($role, 2);
+        needCap($role, 'manage');
         out(200, ['items' => $pdo->query('SELECT id, kind, message, name, contact, created FROM feedback ORDER BY id DESC LIMIT 500')->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     case 'feedback_del': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        needCap($role, 'manage');
         $pdo->prepare('DELETE FROM feedback WHERE id = ?')->execute([(int)($body['id'] ?? 0)]);
         out(200, ['ok' => true]);
     }
 
     case 'upload': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        need($role, 1);
         $col = (string)($_POST['col'] ?? ''); $ref = (string)($_POST['id'] ?? '');
+        needCap($role, $col === 'txns' ? 'txn' : 'manage');
         if (!in_array($col, ['txns', 'maints', 'assets', 'vendors', 'notices'], true) || !preg_match($ID_RE, $ref) || !getDoc($pdo, $col, $ref)) out(400, ['error' => 'bad_request']);
         $f = $_FILES['file'] ?? null;
         if (!$f || $f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) out(400, ['error' => 'no_file']);
@@ -958,7 +979,7 @@ switch ($a) {
         $r = $s->fetch(PDO::FETCH_ASSOC);
         $p = $r ? $dir . '/files/' . $r['id'] : '';
         if (!$r || !is_file($p)) out(404, ['error' => 'not_found']);
-        if ($r['ref_col'] === 'vendors') need($role, 2);
+        if ($r['ref_col'] === 'vendors') needCap($role, 'seeall');
         header('Content-Type: ' . $r['mime']);
         header("Content-Disposition: inline; filename*=UTF-8''" . rawurlencode($r['name']));
         header("Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
@@ -970,10 +991,11 @@ switch ($a) {
 
     case 'file_del': {
         if ($method !== 'POST') out(405, ['error' => 'method']);
-        need($role, 2);
+        need($role, 1);
         $s = $pdo->prepare('SELECT * FROM files WHERE id = ?'); $s->execute([(string)($body['id'] ?? '')]);
         $r = $s->fetch(PDO::FETCH_ASSOC);
         if (!$r) out(404, ['error' => 'not_found']);
+        needCap($role, $r['ref_col'] === 'txns' ? 'txn' : 'manage');
         $pdo->prepare('DELETE FROM files WHERE id = ?')->execute([$r['id']]);
         @unlink($dir . '/files/' . $r['id']);
         audit($pdo, 'xóa chứng từ', $r['ref_col'], $r['ref_id'], $r['name']);

@@ -115,7 +115,7 @@ textarea{resize:vertical;min-height:64px}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;max-width:calc(100% - 32px)}
 #toast[hidden]{display:none}
-body.ro [data-act^="vendor-"],body.ro [data-act^="rating-"],body.ro [data-act="void-txn"],body.ro [data-act="approve"],body.ro [data-act="fdel"],body.noadm [data-admin],body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],body.ro [data-act="seed"],body.ro [data-act="clear-sample"],body.ro #btnSettings,body.ro #btnPw{display:none!important}
+body.no-txn [data-act="add-in"],body.no-txn [data-act="add-out"],body.no-txn [data-act="edit-txn"],body.no-txn [data-act="void-txn"],body.no-manage [data-act="add-maint"],body.no-manage [data-act="add-asset"],body.no-manage [data-act="edit-maint"],body.no-manage [data-act="edit-asset"],body.no-manage [data-act="del-maint"],body.no-manage [data-act="del-asset"],body.no-manage [data-act="add-notice"],body.no-manage [data-act="edit-notice"],body.no-manage [data-act="del-notice"],body.no-manage [data-act^="vendor-"],body.no-manage [data-act^="rating-"],body.no-manage [data-act="unit-new"],body.no-manage [data-act="unit-edit"],body.no-manage [data-act="veh-status"],body.no-manage [data-act="book-status"],body.no-manage [data-act="comment-del"],body.no-manage [data-act="del-fb"],body.no-manage [data-act="ballot-enter"],body.no-approve [data-act="approve"],body.no-govern [data-act="poll-new"],body.no-govern [data-act="poll-edit"],body.no-govern [data-act="poll-close"],body.no-govern [data-act="poll-remove"],body.no-govern [data-act="poll-impl"],body.no-govern [data-act="units-import"],body.no-govern [data-act="unit-remove"],body.no-facility [data-act="fac-new"],body.no-facility [data-act="fac-edit"],body.no-facility [data-act="fac-remove"],body.ro [data-act^="vendor-"],body.ro [data-act^="rating-"],body.ro [data-act="void-txn"],body.ro [data-act="approve"],body.ro [data-act="fdel"],body.noadm [data-admin],body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],body.ro [data-act="seed"],body.ro [data-act="clear-sample"],body.ro #btnSettings,body.ro #btnPw{display:none!important}
 .login{max-width:380px;margin:40px auto;display:flex;flex-direction:column;gap:12px}
 .login label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:500;color:var(--muted)}
 .hp{position:absolute;left:-9999px;height:0;overflow:hidden}
@@ -163,6 +163,7 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:cent
       <button data-tab="tien-ich">Tiện ích</button>
       <button data-tab="bao-cao">Báo cáo</button>
       <button data-tab="gop-y" id="tabGopY" hidden>Góp ý nhận được</button>
+      <button data-tab="nhat-ky" id="tabAudit" hidden>Nhật ký</button>
       <button data-tab="quan-tri" id="tabAdm" hidden>Quản trị</button>
     </nav>
   </div>
@@ -188,8 +189,8 @@ const NORGS=["Ban quản lý","Ban quản trị"];
 const orgOf=n=>n.org==="Đơn vị quản lý vận hành"?"Ban quản lý":(n.org||"");
 const isPlan=n=>String(n.type).startsWith("Kế hoạch"),isRep=n=>String(n.type).startsWith("Báo cáo");
 const NSTAT=["Dự kiến","Đang thực hiện","Hoàn thành"];
-const ROLES={admin:"Trưởng ban (toàn quyền)",editor:"Kế toán, Ban quản lý (nhập liệu)",viewer:"Cư dân (chỉ xem)"};
-const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","nha-thau","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","quan-tri"];
+const ROLES={admin:"Trưởng ban (toàn quyền)",board:"Ban quản trị (duyệt chi, biểu quyết)",manager:"Ban quản lý (vận hành)",accountant:"Kế toán (ghi thu chi)",auditor:"Ban kiểm tra (chỉ xem)",editor:"Kế toán, Ban quản lý (nhập liệu, vai trò cũ)",viewer:"Cư dân (chỉ xem)"};
+const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","nha-thau","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","nhat-ky","quan-tri"];
 const VTYPES=["Xe máy","Ô tô","Xe điện","Xe đạp"];
 const VSTAT=["Chờ duyệt","Đã duyệt","Từ chối","Ngừng"];
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -224,8 +225,10 @@ let filt={
   rep:{period:"quarter",year:String(new Date().getFullYear()),quarter:String(Math.floor(new Date().getMonth()/3)+1),month:today().slice(0,7),fund:"",view:"fin"},
   audit:{q:""}
 };
-const isEd=()=>!!me&&me.role!=="viewer";
-const isAdm=()=>!!me&&me.role==="admin";
+const CAPS={seeall:["editor","admin","accountant","manager","board","auditor"],manage:["editor","admin","manager","board"],txn:["editor","admin","accountant","manager"],approve:["admin","board"],govern:["admin","board"],facility:["admin","board","manager"],audit:["admin","board","auditor"],system:["admin"]};
+const can=c=>!!me&&(CAPS[c]||[]).includes(me.role);
+const isEd=()=>can("seeall");
+const isAdm=()=>can("system");
 
 function toast(msg){const t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(()=>t.hidden=true,4500)}
 async function api(a,body){
@@ -283,7 +286,7 @@ async function loadAll(){
 }
 async function loadFb(){try{fb=(await api("feedback_list")).items;render()}catch(e){fb=[];fail(e)}}
 async function loadAdmin(){
-  try{const [u,a]=await Promise.all([api("users_list"),api("audit_list")]);users=u.items;audit=a.items}
+  try{if(isAdm()){const [u,a]=await Promise.all([api("users_list"),api("audit_list")]);users=u.items;audit=a.items}else{users=[];audit=(await api("audit_list")).items}}
   catch(e){users=users||[];audit=audit||[];fail(e)}
   render();
 }
@@ -342,7 +345,8 @@ const pendingList=()=>state.txns.filter(t=>t.status==="pending"&&!t.voided);
 function curTab(){
   const h=location.hash.slice(1);
   if(!TABS.includes(h))return "tong-quan";
-  if(h==="gop-y"&&!isEd())return "tong-quan";
+  if(h==="gop-y"&&!can("manage"))return "tong-quan";
+  if(h==="nhat-ky"&&!(can("audit")&&!isAdm()))return "tong-quan";
   if(h==="quan-tri"&&!isAdm())return "tong-quan";
   if(h==="can-ho"&&!isEd())return "tong-quan";
   if(h==="gui-xe"&&!isEd()&&!(me&&me.unit))return "tong-quan";
@@ -358,9 +362,10 @@ function vLogin(){
 function render(){
   const act=document.activeElement;const keep=act&&act.id&&act.closest("#view")?{id:act.id,s:act.selectionStart,e:act.selectionEnd}:null;
   const ed=isEd(),adm=isAdm();
-  document.body.classList.toggle("ro",!ed);
+  document.body.classList.toggle("ro",!(can("manage")||can("txn")));
   document.body.classList.toggle("noadm",!adm);
-  $("#tabGopY").hidden=!ed;$("#tabAdm").hidden=!adm;$("#tabUnits").hidden=!ed;$("#tabVeh").hidden=!(ed||(me&&me.unit));$("#btnLogout").hidden=!me;
+  Object.keys(CAPS).forEach(c=>document.body.classList.toggle("no-"+c,!can(c)));
+  $("#tabGopY").hidden=!can("manage");$("#tabAdm").hidden=!adm;$("#tabAudit").hidden=!(can("audit")&&!adm);$("#tabUnits").hidden=!ed;$("#tabVeh").hidden=!(ed||(me&&me.unit));$("#btnLogout").hidden=!me;
   document.querySelector("nav.tabs").hidden=!me;
   const who=$("#who");
   who.textContent=me?((me.name||(me.role==="viewer"?"Cư dân":"Ban quản trị, mật khẩu chung"))+(me.unit?" · căn "+me.unit:"")+" · "+(ROLES[me.role]||"")):"";
@@ -373,7 +378,7 @@ function render(){
   if(loaded<3){v.innerHTML='<div class="empty">Đang tải dữ liệu…</div>';return}
   let html="";
   if(hasSample()&&adm)html+='<div class="banner info"><span>Đang hiển thị dữ liệu mẫu để bạn xem thử cách dùng.</span><button class="btn small" data-act="clear-sample">Xóa dữ liệu mẫu</button></div>';
-  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"tien-ich":vFacilities,"thu-chi":vTxns,"nha-thau":vVendors,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"quan-tri":vAdmin})[tab]();
+  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"tien-ich":vFacilities,"thu-chi":vTxns,"nha-thau":vVendors,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"nhat-ky":vAuditTab,"quan-tri":vAdmin})[tab]();
   v.innerHTML=html;
   if(keep){const el=document.getElementById(keep.id);if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e)}catch(e){}}}
 }
@@ -447,7 +452,7 @@ function vTxns(){
     const a=assetById(t.assetId),n=fileCount("txns",t.id);
     const pill=t.voided?'<span class="pill mute">Đã hủy</span>':t.status==="pending"?'<span class="pill warn">Chờ duyệt</span>':"";
     const trail=[t.byName?"Nhập: "+esc(t.byName):"",t.approvedByName?"Duyệt: "+esc(t.approvedByName):"",t.voided?"Hủy: "+esc(t.voidedByName||"")+" · "+esc(t.voidReason||""):""].filter(Boolean).join(" · ");
-    return `<tr${t.voided?' class="voided"':""}><td class="num">${vdate(t.date)}</td><td>${FUNDS[t.fund]||""}</td><td><strong>${esc(t.category)}</strong> ${pill}${t.party?`<span class="meta">${esc(t.party)}</span>`:""}${t.note?`<span class="meta">${esc(t.note)}</span>`:""}${trail?`<span class="meta">${trail}</span>`:""}</td><td>${a?esc(a.name):""}</td><td class="r num"><b class="amt ${t.type==="in"?"in":"outc"}">${t.type==="in"?"+":"−"}${money(t.amount)}</b></td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="files" data-col="txns" data-id="${esc(t.id)}">Chứng từ${n?" ("+n+")":""}</button>${t.status==="pending"&&!t.voided?`<button class="btn small primary" data-act="approve" data-id="${esc(t.id)}" data-admin="1">Duyệt</button>`:""}${t.voided?"":`<button class="btn small" data-act="edit-txn" data-id="${esc(t.id)}">Sửa</button><button class="btn small danger" data-act="void-txn" data-id="${esc(t.id)}">Hủy khoản</button>`}</div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Không có giao dịch nào khớp bộ lọc.</div>'}`;
+    return `<tr${t.voided?' class="voided"':""}><td class="num">${vdate(t.date)}</td><td>${FUNDS[t.fund]||""}</td><td><strong>${esc(t.category)}</strong> ${pill}${t.party?`<span class="meta">${esc(t.party)}</span>`:""}${t.note?`<span class="meta">${esc(t.note)}</span>`:""}${trail?`<span class="meta">${trail}</span>`:""}</td><td>${a?esc(a.name):""}</td><td class="r num"><b class="amt ${t.type==="in"?"in":"outc"}">${t.type==="in"?"+":"−"}${money(t.amount)}</b></td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="files" data-col="txns" data-id="${esc(t.id)}">Chứng từ${n?" ("+n+")":""}</button>${t.status==="pending"&&!t.voided?`<button class="btn small primary" data-act="approve" data-id="${esc(t.id)}">Duyệt</button>`:""}${t.voided?"":`<button class="btn small" data-act="edit-txn" data-id="${esc(t.id)}">Sửa</button><button class="btn small danger" data-act="void-txn" data-id="${esc(t.id)}">Hủy khoản</button>`}</div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Không có giao dịch nào khớp bộ lọc.</div>'}`;
 }
 
 /* ---------- tài sản ---------- */
@@ -676,7 +681,7 @@ function vUnits(){
   const q=(filt.unit.q||"").trim().toLowerCase();
   const rows=units.filter(u=>!q||[u.code,u.owner,u.phone,u.block].join(" ").toLowerCase().includes(q));
   const nv=c=>(vehs||[]).filter(v=>v.unit===c&&v.status==="Đã duyệt").length;
-  return `<div class="head-row"><h2>Căn hộ</h2><div class="actions"><button class="btn" data-act="units-import" data-admin="1">Nhập danh sách</button><button class="btn primary" data-act="unit-new">+ Thêm căn hộ</button></div></div>
+  return `<div class="head-row"><h2>Căn hộ</h2><div class="actions"><button class="btn" data-act="units-import">Nhập danh sách</button><button class="btn primary" data-act="unit-new">+ Thêm căn hộ</button></div></div>
   <div class="banner info">Mục này có tên và số điện thoại chủ hộ, chỉ Ban quản trị và Ban quản lý thấy. Cư dân không xem được.</div>
   <div class="summary num"><span>${units.length} căn</span><span>Tổng diện tích: <b>${fnum(sum(units,u=>u.area))} m²</b></span></div>
   <div class="filters"><label>Tìm kiếm<input id="fu-q" type="search" data-f="unit.q" data-live="1" value="${esc(filt.unit.q||"")}" placeholder="Mã căn, chủ hộ, số điện thoại"></label></div>
@@ -732,7 +737,7 @@ function vehForm(v){
 
 const polls_unit=()=>(me&&me.unit)||"";
 function pollBlock(p){
-  const ed=isEd(),adm=isAdm(),myU=polls.myUnit;
+  const ed=isEd(),adm=can("govern"),myU=polls.myUnit;
   const tot=polls.totalUnits,totA=polls.totalArea;
   const st=p.closed?'<span class="pill mute">Đã chốt</span>':p.open?'<span class="pill good">Đang mở</span>':'<span class="pill mute">Hết hạn</span>';
   const res=p.tally?`<div style="display:grid;gap:8px;margin-top:10px">${p.options.map(o=>{const t=p.tally[o]||{units:0,area:0},pc=p.voted?Math.round(t.units/p.voted*100):0;return `<div><div style="display:flex;justify-content:space-between;gap:8px;font-size:14px"><span>${esc(o)}${p.myChoice===o?" (căn bạn chọn)":""}</span><span class="num">${t.units} căn · ${fnum(t.area)} m² · ${pc}%</span></div><div style="height:8px;border-radius:4px;background:var(--line);overflow:hidden"><div style="width:${pc}%;height:100%;background:var(--accent)"></div></div></div>`}).join("")}<div class="meta num">Đã bỏ phiếu: ${p.voted}/${tot} căn (${tot?Math.round(p.voted/tot*100):0}%), ${fnum(p.votedArea)}/${fnum(totA)} m² (${totA?Math.round(p.votedArea/totA*100):0}% diện tích)</div></div>`:`<div class="meta" style="margin-top:8px">Kết quả hiển thị sau khi biểu quyết kết thúc. Đã có ${p.voted} căn bỏ phiếu.</div>`;
@@ -742,7 +747,7 @@ function pollBlock(p){
 }
 function vPolls(){
   if(polls===null||(isEd()&&units===null)){loadPolls();return '<div class="empty">Đang tải…</div>'}
-  return `<div class="head-row"><h2>Biểu quyết</h2><button class="btn primary" data-act="poll-new" data-admin="1">+ Tạo biểu quyết</button></div>
+  return `<div class="head-row"><h2>Biểu quyết</h2><button class="btn primary" data-act="poll-new">+ Tạo biểu quyết</button></div>
   <div class="banner info">Mỗi căn hộ một phiếu, tính theo số căn và theo diện tích. Cư dân đăng nhập bằng tài khoản gắn căn hộ để bỏ phiếu; kết quả công bố khi biểu quyết kết thúc.</div>
   ${polls.items.length?polls.items.map(pollBlock).join(""):'<div class="card empty">Chưa có biểu quyết nào.</div>'}`;
 }
@@ -768,7 +773,7 @@ async function loadBooks(){try{books=await api("bookings_list")}catch(e){books={
 const hhmm=t=>String(t||"").slice(0,5);
 function vFacilities(){
   if(facs===null||books===null||(isEd()&&units===null)){loadFac();return '<div class="empty">Đang tải…</div>'}
-  const ed=isEd(),adm=isAdm(),myU=books.myUnit,td=today(),end7=ymd(new Date(Date.now()+7*864e5));
+  const ed=isEd(),adm=can("facility"),myU=books.myUnit,td=today(),end7=ymd(new Date(Date.now()+7*864e5));
   const canBook=ed||!!myU;
   const fname=id=>(facs.find(f=>f.id===id)||{name:"(đã xóa)"}).name;
   const cls=st=>st==="Đã duyệt"?"good":st==="Chờ duyệt"?"warn":st==="Hoàn thành"?"mute":"bad";
@@ -780,7 +785,7 @@ function vFacilities(){
     <div class="meta">${esc(f.kind||"")}${f.kind?" · ":""}Giờ mở cửa ${hhmm(f.openFrom)} đến ${hhmm(f.openTo)}${Number(f.auto)?" · Tự động xác nhận":" · Cần Ban quản lý duyệt"}</div>
     ${f.rules?`<p style="margin:8px 0 0;white-space:pre-wrap;font-size:14px">${esc(f.rules)}</p>`:""}
     <div class="meta" style="margin-top:10px">Đã có người đặt trong 7 ngày tới:</div>${busy.length?'<div class="list">'+busy.map(b=>`<div class="item"><div class="t"><strong>${vdate(b.date)} · ${hhmm(b.start)} đến ${hhmm(b.end)}</strong>${b.unit?`<span>Căn ${esc(b.unit)}</span>`:""}</div><span class="pill ${cls(b.status)}">${esc(b.status)}</span></div>`).join("")+"</div>":'<div class="meta">Chưa có.</div>'}</section>`}).join("");
-  return `<div class="head-row"><h2>Tiện ích</h2><button class="btn primary" data-act="fac-new" data-admin="1">+ Thêm tiện ích</button></div>
+  return `<div class="head-row"><h2>Tiện ích</h2><button class="btn primary" data-act="fac-new">+ Thêm tiện ích</button></div>
   <div class="banner info">Đặt sân, phòng cộng đồng và các dịch vụ chung. ${canBook?"":"Cần tài khoản gắn với căn hộ để đặt chỗ; liên hệ Ban quản trị."}</div>
   ${ed&&pend.length?`<section class="card"><h3>Chờ duyệt (${pend.length})</h3><div class="list">${pend.map(b=>`<div class="item"><div class="t"><strong>${esc(fname(b.facility))} · ${vdate(b.date)} ${hhmm(b.start)} đến ${hhmm(b.end)}</strong><span>Căn ${esc(b.unit)}${b.note?" · "+esc(b.note):""}</span></div><div class="actions"><button class="btn small primary" data-act="book-status" data-id="${esc(b.id)}" data-st="Đã duyệt">Duyệt</button><button class="btn small" data-act="book-status" data-id="${esc(b.id)}" data-st="Từ chối">Từ chối</button></div></div>`).join("")}</div></section>`:""}
   ${mine.length?`<section class="card"><h3>Lịch đặt của căn ${esc(myU)}</h3><div class="list">${mine.map(b=>`<div class="item"><div class="t"><strong>${esc(fname(b.facility))} · ${vdate(b.date)} ${hhmm(b.start)} đến ${hhmm(b.end)}</strong></div><div class="actions"><span class="pill ${cls(b.status)}">${esc(b.status)}</span>${["Chờ duyệt","Đã duyệt"].includes(b.status)?`<button class="btn small danger" data-act="book-cancel" data-id="${esc(b.id)}">Hủy</button>`:""}</div></div>`).join("")}</div></section>`:""}
@@ -858,6 +863,16 @@ function vFeedback(){
 }
 
 /* ---------- quản trị ---------- */
+function auditCard(){
+  const q=filt.audit.q.trim().toLowerCase();
+  const rows=audit.filter(r=>!q||[r.actor,r.action,r.summary].join(" ").toLowerCase().includes(q));
+  return `<section class="card"><div class="head-row"><h3>Nhật ký thay đổi</h3><label class="filters" style="display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)">Tìm<input id="fa-audit" type="search" data-f="audit.q" data-live="1" value="${esc(filt.audit.q)}" placeholder="Người, thao tác, nội dung"></label></div>
+  ${rows.length?`<div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Lúc</th><th>Ai</th><th>Làm gì</th><th>Nội dung</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="num" style="white-space:nowrap">${vtime(r.ts)}</td><td>${esc(r.actor)}</td><td>${esc(r.action)}</td><td>${esc(r.summary||"")}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có thay đổi nào được ghi.</div>'}</section>`;
+}
+function vAuditTab(){
+  if(audit===null){loadAdmin();return '<div class="empty">Đang tải…</div>'}
+  return `<div class="head-row"><h2>Nhật ký thay đổi</h2></div>${auditCard()}`;
+}
 function vAdmin(){
   if(users===null||audit===null){loadAdmin();return '<div class="empty">Đang tải…</div>'}
   const q=filt.audit.q.trim().toLowerCase();
@@ -866,7 +881,7 @@ function vAdmin(){
   const admins=users.filter(u=>u.active&&u.role==="admin").length;
   return `<div class="head-row"><h2>Quản trị</h2><button class="btn" data-act="settings">Cài đặt chung</button></div>
   <section class="card"><div class="head-row"><h3>Tài khoản Ban quản trị</h3><button class="btn small primary" data-act="user-add">+ Thêm tài khoản</button></div>
-  <p class="meta" style="margin:6px 0 10px">Trưởng ban có toàn quyền và duyệt chi. Kế toán nhập thu chi, tài sản, bảo trì, chứng từ nhưng không duyệt chi và không đổi cài đặt. Cư dân dùng mật khẩu chung, chỉ xem.</p>
+  <p class="meta" style="margin:6px 0 10px">Trưởng ban có toàn quyền. Ban quản trị duyệt chi lớn, tạo biểu quyết, xem nhật ký. Ban quản lý lo vận hành: tài sản, bảo trì, nhà thầu, báo cáo, duyệt gửi xe và tiện ích. Kế toán chỉ ghi thu chi và chứng từ. Ban kiểm tra chỉ xem, kể cả nhật ký. Người ghi khoản chi lớn không tự duyệt được khoản đó. Vai trò “Kế toán, Ban quản lý (cũ)” giữ nguyên quyền như trước. Cư dân dùng mật khẩu chung hoặc tài khoản gắn căn hộ</p>
   ${users.length?`<div class="tablewrap"><table><thead><tr><th>Tên</th><th>Đăng nhập</th><th>Căn hộ</th><th>Quyền</th><th>Trạng thái</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.unit||"")}</td><td>${esc(ROLES[u.role]||u.role)}</td><td>${u.active?'<span class="pill good">Hoạt động</span>':'<span class="pill mute">Đã khóa</span>'}</td><td class="r"><button class="btn small" data-act="user-edit" data-id="${esc(u.id)}">Sửa</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản riêng. Hiện mọi người trong Ban quản trị dùng chung một mật khẩu.</div>'}
   <div class="actions" style="margin-top:12px"><button class="btn" data-act="viewer-pw">Đổi mật khẩu cư dân (chỉ xem)</button>
   <button class="btn" data-act="legacy-toggle">${state.meta.legacyOff?"Bật lại":"Tắt"} đăng nhập bằng mật khẩu chung của Ban quản trị</button></div>
@@ -874,8 +889,7 @@ function vAdmin(){
   <section class="card"><h3>Sao lưu và khôi phục</h3>
   <p class="meta" style="margin:6px 0 10px">${le?"Lần sao lưu gần nhất: "+vtime(le)+".":"Chưa sao lưu lần nào."} Nên tải bản sao lưu mỗi tháng và cất ở máy tính của bạn.</p>
   <div class="actions"><a class="btn primary" href="api.php?a=export">Tải dữ liệu (.json)</a><a class="btn" href="api.php?a=export_files">Tải chứng từ (.zip)</a><button class="btn danger" data-act="restore">Khôi phục từ tệp sao lưu</button></div></section>
-  <section class="card"><div class="head-row"><h3>Nhật ký thay đổi</h3><label class="filters" style="display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)">Tìm<input id="fa-audit" type="search" data-f="audit.q" data-live="1" value="${esc(filt.audit.q)}" placeholder="Người, thao tác, nội dung"></label></div>
-  ${rows.length?`<div class="tablewrap" style="margin-top:10px"><table><thead><tr><th>Lúc</th><th>Ai</th><th>Làm gì</th><th>Nội dung</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="num" style="white-space:nowrap">${vtime(r.ts)}</td><td>${esc(r.actor)}</td><td>${esc(r.action)}</td><td>${esc(r.summary||"")}</td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có thay đổi nào được ghi.</div>'}</section>`;
+  ${auditCard()}`;
 }
 
 /* ---------- hộp thoại ---------- */
@@ -1019,7 +1033,7 @@ function userForm(u){
   openModal(u?"Sửa tài khoản":"Thêm tài khoản",`<div class="fields">
     ${F("u-name","Họ tên (cư dân: ghi kèm số căn, vd Nguyễn A, T3-301)",`<input id="u-name" name="name" required maxlength="80" value="${esc(u?u.name:"")}">`,"full")}
     ${F("u-un","Tên đăng nhập (chữ thường, số, . _ -)",`<input id="u-un" name="username" required pattern="[a-z0-9._\\-]{3,30}" ${u?"readonly":""} value="${esc(u?u.username:"")}" autocapitalize="none">`)}
-    ${F("u-role","Quyền",`<select id="u-role" name="role">${opt([["viewer",ROLES.viewer],["editor",ROLES.editor],["admin",ROLES.admin]],u?u.role:"editor")}</select>`)}
+    ${F("u-role","Quyền",`<select id="u-role" name="role">${opt(["viewer","accountant","manager","board","auditor","admin","editor"].map(r=>[r,ROLES[r]]),u?u.role:"manager")}</select>`)}
     ${F("u-unit","Căn hộ (tài khoản cư dân: để biểu quyết, đăng ký xe)",`<input id="u-unit" name="unit" maxlength="20" value="${esc(u?u.unit||"":"")}" placeholder="vd: T3-301" autocapitalize="characters">`,"full")}
     ${F("u-pw",u?"Đặt lại mật khẩu (bỏ trống nếu giữ)":"Mật khẩu (từ 8 ký tự)",`<input id="u-pw" name="password" type="text" ${u?"":"required"} minlength="8" maxlength="100" autocomplete="off">`,"full")}
     ${u?'<label class="check full" for="u-act"><input id="u-act" name="active" type="checkbox"'+(u.active?" checked":"")+"> Cho phép đăng nhập</label>":""}

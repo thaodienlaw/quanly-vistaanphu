@@ -58,7 +58,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 $role = $_SESSION['role'] ?? null;
 $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
 $RANK = ['viewer' => 1, 'editor' => 2, 'admin' => 3];
-$COLS = ['txns', 'assets', 'maints', 'notices', 'settings'];
+$COLS = ['txns', 'assets', 'maints', 'notices', 'vendors', 'vratings', 'settings'];
 $ID_RE = '/^[A-Za-z0-9_.:@+~-]{1,100}$/';
 
 /* ---------- tiện ích ---------- */
@@ -119,6 +119,8 @@ function summ(string $col, array $d): string {
         case 'txns': return (($d['type'] ?? '') === 'in' ? 'Thu ' : 'Chi ') . vnd($d['amount'] ?? 0) . ' · ' . ($d['category'] ?? '') . ' (' . fundName((string)($d['fund'] ?? '')) . ')';
         case 'assets': return trim(($d['code'] ?? '') . ' ' . ($d['name'] ?? ''));
         case 'maints': return ($d['kind'] ?? 'Bảo trì') . ': ' . ($d['title'] ?? '') . ' (' . ($d['date'] ?? '') . ')';
+        case 'vendors': return 'Nhà thầu: ' . ($d['name'] ?? '');
+        case 'vratings': return 'Đánh giá nhà thầu (' . ($d['date'] ?? '') . ')';
         case 'notices': return ($d['type'] ?? 'Thông báo') . ': ' . ($d['title'] ?? '');
         case 'settings': return 'Cài đặt chung';
     }
@@ -267,15 +269,20 @@ switch ($a) {
 
     case 'all': {
         need($role, 1);
-        $res = ['txns' => [], 'assets' => [], 'maints' => [], 'notices' => [], 'comments' => [], 'settings' => new stdClass(), 'files' => [], 'meta' => new stdClass()];
+        $res = ['txns' => [], 'assets' => [], 'maints' => [], 'notices' => [], 'vendors' => [], 'vratings' => [], 'comments' => [], 'settings' => new stdClass(), 'files' => [], 'meta' => new stdClass()];
         foreach ($pdo->query('SELECT col, id, data FROM docs') as $r) {
             $d = json_decode($r['data'], true);
             if (!is_array($d)) continue;
             if ($r['col'] === 'settings') { if ($r['id'] === 'main') $res['settings'] = $d; continue; }
             if (isset($res[$r['col']])) { $d['id'] = $r['id']; $res[$r['col']][] = $d; }
         }
+        if ($RANK[$role] < 2) {   // cư dân: ẩn giá trị hợp đồng, ghi chú đánh giá, tệp hợp đồng
+            foreach ($res['vendors'] as &$vv) { unset($vv['contractValue'], $vv['phone'], $vv['email'], $vv['note']); } unset($vv);
+            foreach ($res['vratings'] as &$vr) { unset($vr['note']); } unset($vr);
+        }
         $res['comments'] = $pdo->query('SELECT id, asset_id AS assetId, name, text, uid, ts FROM comments ORDER BY id DESC LIMIT 2000')->fetchAll(PDO::FETCH_ASSOC);
         $res['files'] = $pdo->query('SELECT id, name, mime, size, ref_col AS col, ref_id AS ref, ts FROM files ORDER BY ts')->fetchAll(PDO::FETCH_ASSOC);
+        if ($RANK[$role] < 2) $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'vendors'));
         $res['meta'] = ['lastExport' => metaGet($pdo, 'last_export'), 'legacyOff' => metaGet($pdo, 'legacy_off') === '1'];
         if ($RANK[$role] >= 2) { try { maybeRemind($pdo); } catch (Throwable $e) {} }
         out(200, $res);
@@ -319,6 +326,15 @@ switch ($a) {
         } elseif ($col === 'maints') {
             if (trim((string)($data['assetId'] ?? '')) === '') out(400, ['error' => 'bad_request']);
             if (!in_array($data['kind'] ?? 'Bảo trì', ['Bảo trì', 'Sửa chữa', 'Kiểm định', 'Sử dụng', 'Đề xuất'], true)) $data['kind'] = 'Bảo trì';
+        } elseif ($col === 'vendors') {
+            if (trim((string)($data['name'] ?? '')) === '') out(400, ['error' => 'bad_request']);
+            $data['name'] = mb_substr(trim((string)$data['name']), 0, 120);
+            if (!in_array($data['status'] ?? '', ['Đang hợp đồng', 'Hết hạn', 'Ngừng hợp tác'], true)) $data['status'] = 'Đang hợp đồng';
+        } elseif ($col === 'vratings') {
+            if (trim((string)($data['vendorId'] ?? '')) === '') out(400, ['error' => 'bad_request']);
+            foreach (['quality', 'timeliness', 'price', 'attitude'] as $k) $data[$k] = max(1, min(5, (int)($data[$k] ?? 3)));
+            $data['note'] = mb_substr((string)($data['note'] ?? ''), 0, 1000);
+            $who = actor(); $data['byName'] = $old['byName'] ?? $who['name'];
         } elseif ($col === 'notices') {
             if (trim((string)($data['title'] ?? '')) === '') out(400, ['error' => 'bad_request']);
             if (!in_array($data['type'] ?? '', ['Thông báo', 'Kế hoạch ngày', 'Kế hoạch tháng', 'Kế hoạch năm'], true)) $data['type'] = 'Thông báo';
@@ -340,7 +356,7 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         $col = (string)($body['col'] ?? ''); $id = (string)($body['id'] ?? '');
         if (!in_array($col, $COLS, true) || !preg_match($ID_RE, $id)) out(400, ['error' => 'bad_request']);
-        need($role, in_array($col, ['assets', 'maints', 'notices'], true) ? 2 : 3);
+        need($role, in_array($col, ['assets', 'maints', 'notices', 'vendors', 'vratings'], true) ? 2 : 3);
         $old = getDoc($pdo, $col, $id);
         $pdo->prepare('DELETE FROM docs WHERE col = ? AND id = ?')->execute([$col, $id]);
         if ($old) audit($pdo, 'xóa', $col, $id, summ($col, $old), $old);
@@ -518,7 +534,7 @@ switch ($a) {
             $clean[] = $d;
         }
         $pdo->beginTransaction();
-        $pdo->exec("DELETE FROM docs WHERE col IN ('txns','assets','maints','notices','settings')");
+        $pdo->exec("DELETE FROM docs WHERE col IN ('txns','assets','maints','notices','vendors','vratings','settings')");
         foreach ($clean as $d) setDoc($pdo, $d['col'], (string)$d['id'], $d['data']);
         if (isset($body['units']) && is_array($body['units'])) {
             $pdo->exec('DELETE FROM units'); $pdo->exec('DELETE FROM vehicles'); $pdo->exec('DELETE FROM polls'); $pdo->exec('DELETE FROM ballots'); $pdo->exec('DELETE FROM facilities'); $pdo->exec('DELETE FROM bookings');
@@ -913,7 +929,7 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         need($role, 2);
         $col = (string)($_POST['col'] ?? ''); $ref = (string)($_POST['id'] ?? '');
-        if (!in_array($col, ['txns', 'maints', 'assets'], true) || !preg_match($ID_RE, $ref) || !getDoc($pdo, $col, $ref)) out(400, ['error' => 'bad_request']);
+        if (!in_array($col, ['txns', 'maints', 'assets', 'vendors'], true) || !preg_match($ID_RE, $ref) || !getDoc($pdo, $col, $ref)) out(400, ['error' => 'bad_request']);
         $f = $_FILES['file'] ?? null;
         if (!$f || $f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) out(400, ['error' => 'no_file']);
         if ($f['size'] > 6000000) out(413, ['error' => 'too_large']);
@@ -937,6 +953,7 @@ switch ($a) {
         $r = $s->fetch(PDO::FETCH_ASSOC);
         $p = $r ? $dir . '/files/' . $r['id'] : '';
         if (!$r || !is_file($p)) out(404, ['error' => 'not_found']);
+        if ($r['ref_col'] === 'vendors') need($role, 2);
         header('Content-Type: ' . $r['mime']);
         header("Content-Disposition: inline; filename*=UTF-8''" . rawurlencode($r['name']));
         header("Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");

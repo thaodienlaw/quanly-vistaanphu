@@ -115,7 +115,7 @@ textarea{resize:vertical;min-height:64px}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px}
 #toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;z-index:30;max-width:calc(100% - 32px)}
 #toast[hidden]{display:none}
-body.ro [data-act="void-txn"],body.ro [data-act="approve"],body.ro [data-act="fdel"],body.noadm [data-admin],body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],body.ro [data-act="seed"],body.ro [data-act="clear-sample"],body.ro #btnSettings,body.ro #btnPw{display:none!important}
+body.ro [data-act^="vendor-"],body.ro [data-act^="rating-"],body.ro [data-act="void-txn"],body.ro [data-act="approve"],body.ro [data-act="fdel"],body.noadm [data-admin],body.ro [data-act^="add"],body.ro [data-act^="edit"],body.ro [data-act^="del"],body.ro [data-act="seed"],body.ro [data-act="clear-sample"],body.ro #btnSettings,body.ro #btnPw{display:none!important}
 .login{max-width:380px;margin:40px auto;display:flex;flex-direction:column;gap:12px}
 .login label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:500;color:var(--muted)}
 .hp{position:absolute;left:-9999px;height:0;overflow:hidden}
@@ -156,6 +156,7 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:cent
       <button data-tab="thu-chi">Thu chi</button>
       <button data-tab="tai-san">Tài sản</button>
       <button data-tab="bao-tri">Bảo trì</button>
+      <button data-tab="nha-thau">Nhà thầu</button>
       <button data-tab="can-ho" id="tabUnits" hidden>Căn hộ</button>
       <button data-tab="gui-xe" id="tabVeh" hidden>Gửi xe</button>
       <button data-tab="bieu-quyet">Biểu quyết</button>
@@ -184,7 +185,7 @@ const MKINDS=["Bảo trì","Sửa chữa","Kiểm định","Sử dụng","Đề 
 const NTYPES=["Thông báo","Kế hoạch ngày","Kế hoạch tháng","Kế hoạch năm"];
 const NSTAT=["Dự kiến","Đang thực hiện","Hoàn thành"];
 const ROLES={admin:"Trưởng ban (toàn quyền)",editor:"Kế toán, Ban quản lý (nhập liệu)",viewer:"Cư dân (chỉ xem)"};
-const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","quan-tri"];
+const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","nha-thau","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","quan-tri"];
 const VTYPES=["Xe máy","Ô tô","Xe điện","Xe đạp"];
 const VSTAT=["Chờ duyệt","Đã duyệt","Từ chối","Ngừng"];
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -206,11 +207,12 @@ const F=(id,label,inner,cls)=>`<label class="${cls||""}" for="${id}">${label}${i
 function opt(list,sel,all){return (all?`<option value="">${all}</option>`:"")+list.map(x=>{const v=Array.isArray(x)?x[0]:x,l=Array.isArray(x)?x[1]:x;return `<option value="${esc(v)}"${v===sel?" selected":""}>${esc(l)}</option>`}).join("")}
 
 /* ---------- dữ liệu và kết nối ---------- */
-let state={txns:[],assets:[],maints:[],notices:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};
+let state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};
 let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={}, facs=null, books=null;
 let filt={
   notice:{type:""},
   unit:{q:""},
+  vendor:{q:""},
   veh:{status:"",type:"",q:""},
   txn:{fund:"",type:"",month:"",q:"",status:""},
   asset:{kind:"",q:""},
@@ -271,7 +273,7 @@ async function voidTxn(id,reason){
 }
 async function loadAll(){
   const j=await api("all");
-  state.txns=j.txns||[];state.assets=j.assets||[];state.maints=j.maints||[];state.notices=j.notices||[];state.comments=j.comments||[];state.files=j.files||[];state.meta=j.meta||{};
+  state.txns=j.txns||[];state.assets=j.assets||[];state.maints=j.maints||[];state.notices=j.notices||[];state.vendors=j.vendors||[];state.vratings=j.vratings||[];state.comments=j.comments||[];state.files=j.files||[];state.meta=j.meta||{};
   state.settings=Object.assign({name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""},j.settings||{});
   loaded=3;
 }
@@ -325,6 +327,7 @@ function dueAll(){
     if(i.insDue)res.push({a,kind:"Kiểm định",due:i.insDue,days:i.ins.days,key:i.ins.key,label:i.ins.label,cls:i.ins.cls});
     if(i.war&&i.war.days>=0&&i.war.days<=60)res.push({a,kind:"Hết bảo hành",due:a.warrantyEnd,days:i.war.days,key:i.war.key,label:i.war.label,cls:i.war.cls});
   });
+  state.vendors.filter(v=>v.status==="Đang hợp đồng"&&v.contractTo).forEach(v=>{const d=dueStatus(v.contractTo);if(d.days<=60)res.push({a:{name:v.name,code:"Nhà thầu"},kind:"Hết hạn hợp đồng",due:v.contractTo,days:d.days,key:d.key,label:d.label,cls:d.cls})});
   return res.sort((x,y)=>x.days-y.days);
 }
 const hasSample=()=>[...state.txns,...state.assets,...state.maints].some(x=>x.sample);
@@ -366,7 +369,7 @@ function render(){
   if(loaded<3){v.innerHTML='<div class="empty">Đang tải dữ liệu…</div>';return}
   let html="";
   if(hasSample()&&adm)html+='<div class="banner info"><span>Đang hiển thị dữ liệu mẫu để bạn xem thử cách dùng.</span><button class="btn small" data-act="clear-sample">Xóa dữ liệu mẫu</button></div>';
-  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"tien-ich":vFacilities,"thu-chi":vTxns,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"quan-tri":vAdmin})[tab]();
+  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"tien-ich":vFacilities,"thu-chi":vTxns,"nha-thau":vVendors,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"quan-tri":vAdmin})[tab]();
   v.innerHTML=html;
   if(keep){const el=document.getElementById(keep.id);if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e)}catch(e){}}}
 }
@@ -562,6 +565,84 @@ function assetDetail(id){
   drawFiles();drawComments();
 }
 
+/* ---------- nhà thầu ---------- */
+const vkey=v=>String(v||"").trim().toLowerCase();
+function vendorJobs(v){
+  const k=vkey(v.name);
+  const ms=state.maints.filter(m=>vkey(m.vendor)===k).map(m=>({date:m.date,what:(m.kind||"Bảo trì")+": "+m.title,cost:Number(m.cost)||0,asset:(assetById(m.assetId)||{}).name||""}));
+  const ts=state.txns.filter(t=>live(t)&&t.type==="out"&&!t.maintId&&vkey(t.party)===k).map(t=>({date:t.date,what:t.category+(t.note?": "+t.note:""),cost:t.amount,asset:(assetById(t.assetId)||{}).name||""}));
+  return [...ms,...ts].sort((a,b)=>b.date.localeCompare(a.date));
+}
+function vendorScore(v){
+  const r=state.vratings.filter(x=>x.vendorId===v.id);
+  if(!r.length)return{n:0,avg:0,q:0,t:0,p:0,a:0};
+  const m=f=>sum(r,x=>x[f]||0)/r.length;
+  const q=m("quality"),t=m("timeliness"),p=m("price"),a=m("attitude");
+  return{n:r.length,avg:(q+t+p+a)/4,q,t,p,a};
+}
+const stars=n=>n?`<b class="num">${(Math.round(n*10)/10).toFixed(1)}</b>/5`:'<span class="meta" style="display:inline">Chưa đánh giá</span>';
+function contractPill(v){
+  if(v.status!=="Đang hợp đồng")return `<span class="pill mute">${esc(v.status||"")}</span>`;
+  if(!v.contractTo)return '<span class="pill good">Đang hợp đồng</span>';
+  const d=dueStatus(v.contractTo);
+  return `<span class="pill ${d.key==="over"?"bad":d.key==="soon"?"warn":"good"}">${d.key==="over"?"Quá hạn hợp đồng":"Hợp đồng đến "+vdate(v.contractTo)}</span>`;
+}
+function vVendors(){
+  const ed=isEd(),q=(filt.vendor.q||"").trim().toLowerCase();
+  const rows=state.vendors.filter(v=>!q||[v.name,v.service,v.contractNo].join(" ").toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
+  const known=new Set(state.vendors.map(v=>vkey(v.name)));
+  const names={};state.maints.forEach(m=>{if(m.vendor&&!known.has(vkey(m.vendor)))names[vkey(m.vendor)]=m.vendor.trim()});state.txns.forEach(t=>{if(t.type==="out"&&live(t)&&t.party&&!known.has(vkey(t.party)))names[vkey(t.party)]=t.party.trim()});
+  const unk=Object.values(names).slice(0,12);
+  return `<div class="head-row"><h2>Nhà thầu, đơn vị cung cấp dịch vụ</h2><button class="btn primary" data-act="vendor-new">+ Thêm nhà thầu</button></div>
+  <div class="filters"><label>Tìm kiếm<input id="fv2-q" type="search" data-f="vendor.q" data-live="1" value="${esc(filt.vendor.q||"")}" placeholder="Tên, dịch vụ, số hợp đồng"></label></div>
+  ${ed&&unk.length?`<div class="banner info"><span>Đã xuất hiện trong sổ nhưng chưa có hồ sơ: ${unk.map(n=>`<button class="btn small" data-act="vendor-new" data-name="${esc(n)}">${esc(n)}</button>`).join(" ")}</span></div>`:""}
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Nhà thầu</th><th>Dịch vụ</th><th>Hợp đồng</th><th>Đánh giá</th><th class="r">Số việc</th><th class="r">Tổng chi</th><th></th></tr></thead><tbody>${rows.map(v=>{const j=vendorJobs(v),sc=vendorScore(v);return `<tr><td><strong>${esc(v.name)}</strong></td><td>${esc(v.service||"")}</td><td>${contractPill(v)}${v.contractNo?`<span class="meta">${esc(v.contractNo)}</span>`:""}</td><td>${stars(sc.avg)}${sc.n?`<span class="meta">${sc.n} lượt</span>`:""}</td><td class="r num">${j.length}</td><td class="r num">${money(sum(j,x=>x.cost))}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="vnd-detail" data-id="${esc(v.id)}">Chi tiết</button></div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có hồ sơ nhà thầu. Bấm “Thêm nhà thầu” để lập hồ sơ, hợp đồng và đánh giá.</div>'}`;
+}
+function vendorForm(v,presetName){
+  const cur=v||{name:presetName||"",service:"",contact:"",phone:"",email:"",contractNo:"",contractFrom:"",contractTo:"",contractValue:"",status:"Đang hợp đồng",note:""};
+  openModal(v?"Sửa nhà thầu":"Thêm nhà thầu",`<div class="fields">
+    ${F("vd-n","Tên đơn vị (đúng như đã ghi ở thu chi, bảo trì)",`<input id="vd-n" name="name" required maxlength="120" value="${esc(cur.name)}">`,"full")}
+    ${F("vd-s","Loại dịch vụ",`<input id="vd-s" name="service" maxlength="80" value="${esc(cur.service||"")}" placeholder="vd: Thang máy, Bảo vệ, Vệ sinh, PCCC">`,"full")}
+    ${F("vd-c","Người liên hệ",`<input id="vd-c" name="contact" maxlength="80" value="${esc(cur.contact||"")}">`)}
+    ${F("vd-p","Điện thoại",`<input id="vd-p" name="phone" maxlength="30" value="${esc(cur.phone||"")}">`)}
+    ${F("vd-e","Email",`<input id="vd-e" name="email" maxlength="100" value="${esc(cur.email||"")}">`,"full")}
+    ${F("vd-no","Số hợp đồng",`<input id="vd-no" name="contractNo" maxlength="60" value="${esc(cur.contractNo||"")}">`)}
+    ${F("vd-val","Giá trị hợp đồng (₫)",`<input id="vd-val" name="contractValue" type="number" min="0" step="1" value="${esc(cur.contractValue||"")}">`)}
+    ${F("vd-f","Hợp đồng từ ngày",`<input id="vd-f" name="contractFrom" type="date" value="${esc(cur.contractFrom||"")}">`)}
+    ${F("vd-t","Đến ngày",`<input id="vd-t" name="contractTo" type="date" value="${esc(cur.contractTo||"")}">`)}
+    ${F("vd-st","Tình trạng",`<select id="vd-st" name="status">${opt(["Đang hợp đồng","Hết hạn","Ngừng hợp tác"],cur.status)}</select>`,"full")}
+    ${F("vd-note","Ghi chú (phạm vi công việc, điều khoản chính)",`<textarea id="vd-note" name="note" maxlength="1000">${esc(cur.note||"")}</textarea>`,"full")}
+  </div>`,async fd=>{
+    const data={name:fd.get("name").trim(),service:fd.get("service").trim(),contact:fd.get("contact").trim(),phone:fd.get("phone").trim(),email:fd.get("email").trim(),contractNo:fd.get("contractNo").trim(),contractFrom:fd.get("contractFrom"),contractTo:fd.get("contractTo"),contractValue:num(fd.get("contractValue")),status:fd.get("status"),note:fd.get("note").trim()};
+    return !!(await put("vendors",v?v.id:"vd"+uid(),data));
+  });
+}
+function ratingForm(vid){
+  const v=state.vendors.find(x=>x.id===vid);
+  const sel=(id,l)=>F("rt-"+id,l,`<select id="rt-${id}" name="${id}">${opt([["5","5 · Rất tốt"],["4","4 · Tốt"],["3","3 · Đạt"],["2","2 · Yếu"],["1","1 · Kém"]],"4")}</select>`);
+  openModal("Đánh giá: "+v.name,`<div class="fields">
+    ${F("rt-d","Ngày đánh giá",`<input id="rt-d" name="date" type="date" required value="${today()}">`,"full")}
+    ${sel("quality","Chất lượng công việc")}${sel("timeliness","Đúng tiến độ")}${sel("price","Giá cả hợp lý")}${sel("attitude","Thái độ, phối hợp")}
+    ${F("rt-n","Nhận xét (chỉ Ban quản trị, Ban quản lý thấy)",`<textarea id="rt-n" name="note" rows="3" maxlength="1000"></textarea>`,"full")}
+  </div>`,async fd=>{
+    return !!(await put("vratings","r"+uid(),{vendorId:vid,date:fd.get("date"),quality:num(fd.get("quality")),timeliness:num(fd.get("timeliness")),price:num(fd.get("price")),attitude:num(fd.get("attitude")),note:fd.get("note").trim()})) && (setTimeout(()=>vendorDetail(vid),0),true);
+  },"Lưu đánh giá");
+}
+function vendorDetail(id){
+  const v=state.vendors.find(x=>x.id===id);if(!v)return;
+  const ed=isEd(),sc=vendorScore(v),jobs=vendorJobs(v),rs=state.vratings.filter(x=>x.vendorId===id).sort((a,b)=>b.date.localeCompare(a.date));
+  if(ed)filesCtx={col:"vendors",id};
+  const info=[["Dịch vụ",v.service],["Liên hệ",[v.contact,v.phone,v.email].filter(Boolean).join(" · ")],["Số hợp đồng",v.contractNo],["Thời hạn",(v.contractFrom||v.contractTo)?(v.contractFrom?vdate(v.contractFrom):"…")+" đến "+(v.contractTo?vdate(v.contractTo):"…"):""],["Giá trị hợp đồng",v.contractValue?money(v.contractValue):""]].filter(x=>x[1]).map(x=>`<div><span class="meta" style="display:inline">${x[0]}:</span> ${esc(x[1])}</div>`).join("");
+  openModal(v.name,`<div style="display:grid;gap:4px;font-size:14px"><div>${contractPill(v)}</div>${info}</div>${v.note?`<p style="margin:0;white-space:pre-wrap">${esc(v.note)}</p>`:""}
+    ${ed?`<div class="actions"><button type="button" class="btn small" data-act="vendor-edit" data-id="${esc(id)}">Sửa hồ sơ</button><button type="button" class="btn small danger" data-act="vendor-remove" data-id="${esc(id)}">Xóa</button></div>`:""}
+    <div><h3>Đánh giá</h3>${sc.n?`<div class="summary num"><span>Chung: ${stars(sc.avg)}</span><span>Chất lượng: ${stars(sc.q)}</span><span>Tiến độ: ${stars(sc.t)}</span><span>Giá cả: ${stars(sc.p)}</span><span>Thái độ: ${stars(sc.a)}</span></div>`:'<div class="meta">Chưa có đánh giá.</div>'}
+      ${rs.length?'<div class="list" style="margin-top:8px">'+rs.map(r=>`<div class="item"><div class="t"><strong>${vdate(r.date)} · ${((r.quality+r.timeliness+r.price+r.attitude)/4).toFixed(1)}/5</strong><span>Chất lượng ${r.quality} · Tiến độ ${r.timeliness} · Giá ${r.price} · Thái độ ${r.attitude}${r.byName?" · "+esc(r.byName):""}</span>${r.note?`<span style="display:block;white-space:pre-wrap">${esc(r.note)}</span>`:""}</div>${ed?`<button type="button" class="btn small danger" data-act="rating-remove" data-id="${esc(r.id)}" data-vid="${esc(id)}">Xóa</button>`:""}</div>`).join("")+"</div>":""}
+      ${ed?`<button type="button" class="btn small primary" data-act="rating-new" data-id="${esc(id)}" style="margin-top:8px">+ Đánh giá mới</button>`:""}</div>
+    <div><h3>Công việc và chi phí đã ghi (${jobs.length} việc, ${money(sum(jobs,x=>x.cost))})</h3>${jobs.length?'<div class="list">'+jobs.slice(0,30).map(j=>`<div class="item"><div class="t"><strong>${esc(j.what)}</strong><span>${vdate(j.date)}${j.asset?" · "+esc(j.asset):""}</span></div><b class="num">${j.cost?money(j.cost):"—"}</b></div>`).join("")+"</div>":'<div class="meta">Chưa có công việc nào ghi tên đơn vị này.</div>'}</div>
+    ${ed?`<div><h3>Hợp đồng, biên bản, chứng từ</h3><div class="list" id="flist"></div><input id="fup" type="file" accept="image/*,application/pdf" multiple style="margin-top:8px"><p id="fstat" style="margin:6px 0 0;font-size:13px;color:var(--muted)">Ảnh JPG, PNG, WebP và PDF. Chỉ Ban quản trị, Ban quản lý thấy.</p></div>`:""}`,()=>{filesCtx=null},"Đóng",true);
+  if(ed)drawFiles();
+}
+
 /* ---------- căn hộ, gửi xe, biểu quyết ---------- */
 async function loadUnits(){try{units=(await api("units_list")).items}catch(e){units=[];fail(e)}render()}
 async function loadVeh(){
@@ -733,7 +814,7 @@ function activityReport(rg){
   const polls_in=pl.filter(p=>{const d=new Date(p.created*1000);return inR(ymd(d))});
   const bk=books&&books.items?books.items.filter(b=>inR(b.date)&&b.status==="Đã duyệt"||inR(b.date)&&b.status==="Hoàn thành"):[];
   const impl=pl.filter(p=>p.closed||!p.open);
-  return `<section class="card rep-block"><h3>Nhà thầu, đơn vị cung cấp dịch vụ trong kỳ</h3>${vendors.length?`<div class="tablewrap" style="border:0"><table><thead><tr><th>Đơn vị</th><th class="r">Số việc</th><th class="r">Tổng chi</th><th>Gần nhất</th><th>Công việc</th></tr></thead><tbody>${vendors.map(v=>`<tr><td><strong>${esc(v.name)}</strong></td><td class="r num">${v.n}</td><td class="r num">${money(v.sum)}</td><td class="num">${vdate(v.last)}</td><td>${v.items.map(esc).join("; ")}${v.n>v.items.length?"…":""}</td></tr>`).join("")}</tbody></table></div>`:'<p class="meta">Không có đơn vị nào trong kỳ.</p>'}</section>
+  return `<section class="card rep-block"><h3>Nhà thầu, đơn vị cung cấp dịch vụ trong kỳ</h3>${vendors.length?`<div class="tablewrap" style="border:0"><table><thead><tr><th>Đơn vị</th><th>Hợp đồng</th><th>Điểm</th><th class="r">Số việc</th><th class="r">Tổng chi</th><th>Gần nhất</th><th>Công việc</th></tr></thead><tbody>${vendors.map(v=>{const vd=state.vendors.find(x=>vkey(x.name)===vkey(v.name)),sc=vd?vendorScore(vd):{n:0,avg:0};return `<tr><td><strong>${esc(v.name)}</strong></td><td>${vd?contractPill(vd):"—"}</td><td>${sc.n?stars(sc.avg):"—"}</td><td class="r num">${v.n}</td><td class="r num">${money(v.sum)}</td><td class="num">${vdate(v.last)}</td><td>${v.items.map(esc).join("; ")}${v.n>v.items.length?"…":""}</td></tr>`}).join("")}</tbody></table></div>`:'<p class="meta">Không có đơn vị nào trong kỳ.</p>'}</section>
   <section class="card rep-block"><h3>Hoạt động của Ban quản lý, Ban quản trị trong kỳ</h3><table class="rep"><tbody>
     <tr><td>Khoản thu, chi đã ghi</td><td class="r num">${tx.filter(t=>!t.voided).length}</td></tr>
     <tr><td>Khoản chi lớn đã được duyệt / đang chờ duyệt</td><td class="r num">${tx.filter(t=>t.approvedBy&&!t.voided).length} / ${tx.filter(t=>t.status==="pending"&&!t.voided).length}</td></tr>
@@ -1064,6 +1145,12 @@ document.addEventListener("click",async e=>{
     if(b.dataset.sure!=="1"){b.dataset.sure="1";b.textContent="Bấm lần nữa để xóa";return}
     try{await api("file_del",{id});state.files=state.files.filter(f=>f.id!==id);drawFiles();render()}catch(err){fail(err)}
   }
+  else if(act==="vendor-new")vendorForm(null,b.dataset.name);
+  else if(act==="vendor-edit"){const v=state.vendors.find(x=>x.id===id);filesCtx=null;vendorForm(v)}
+  else if(act==="vnd-detail")vendorDetail(id);
+  else if(act==="vendor-remove"){const v=state.vendors.find(x=>x.id===id);filesCtx=null;confirmBox("Xóa hồ sơ nhà thầu?",`Xóa “${esc(v.name)}” và các đánh giá? Chi phí, công việc đã ghi vẫn được giữ.`,"Xóa",async()=>{for(const r of state.vratings.filter(x=>x.vendorId===id))await del("vratings",r.id);await del("vendors",id)})}
+  else if(act==="rating-new"){filesCtx=null;ratingForm(id)}
+  else if(act==="rating-remove"){await del("vratings",id);vendorDetail(b.dataset.vid)}
   else if(act==="unit-new")unitForm();
   else if(act==="unit-edit")unitForm(units.find(u=>u.id===id));
   else if(act==="units-import")unitsImportForm();
@@ -1130,7 +1217,7 @@ document.addEventListener("click",async e=>{
     const off=!state.meta.legacyOff;
     confirmBox(off?"Tắt mật khẩu chung?":"Bật lại mật khẩu chung?",off?"Sau khi tắt, Ban quản trị chỉ đăng nhập bằng tài khoản riêng. Người đang dùng mật khẩu chung vẫn làm việc được đến khi đăng xuất.":"Mật khẩu chung của Ban quản trị sẽ đăng nhập được trở lại.","Đồng ý",async()=>{try{await api("legacy_off",{off});state.meta.legacyOff=off;render()}catch(err){fail(err);return false}});
   }
-  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
+  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
   else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(err){fail(err)}})}
   else if(act==="goto-pending"){filt.txn.status="pending";location.hash="thu-chi";render()}
   else if(act==="print")window.print();

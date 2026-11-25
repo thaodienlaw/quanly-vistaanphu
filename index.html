@@ -813,6 +813,12 @@ function bookForm(fid){
 }
 
 /* ---------- tổng hợp hoạt động (trong báo cáo) ---------- */
+function orgBlock(title,org,rows,nt){
+  const mine=nt.filter(n=>n.org===org),reps=mine.filter(isRep),pls=mine.filter(isPlan),pc=st=>pls.filter(n=>(n.status||"Dự kiến")===st).length;
+  const all=[...reps,...pls].sort((a,b)=>b.date.localeCompare(a.date));
+  const r=[...rows,["Báo cáo đã đăng",reps.length],["Kế hoạch: dự kiến / đang thực hiện / hoàn thành",`${pc("Dự kiến")} / ${pc("Đang thực hiện")} / ${pc("Hoàn thành")}`],["Thông báo đã đăng",mine.filter(n=>n.type==="Thông báo").length]];
+  return `<section class="card rep-block"><h3>${esc(title)} trong kỳ</h3><table class="rep"><tbody>${r.map(x=>`<tr><td>${esc(x[0])}</td><td class="r num">${esc(x[1])}</td></tr>`).join("")}</tbody></table>${all.length?'<div class="list" style="margin-top:8px">'+all.map(n=>`<div class="item"><div class="t"><strong>${esc(n.title)}</strong><span>${esc(n.type)} · ${vdate(n.date)}${n.status?" · "+esc(n.status):""}</span></div></div>`).join("")+"</div>":""}</section>`;
+}
 function activityReport(rg){
   if(polls===null){loadPolls();}
   if(books===null){loadBooks();}
@@ -833,16 +839,9 @@ function activityReport(rg){
   const bk=books&&books.items?books.items.filter(b=>inR(b.date)&&b.status==="Đã duyệt"||inR(b.date)&&b.status==="Hoàn thành"):[];
   const impl=pl.filter(p=>p.closed||!p.open);
   return `<section class="card rep-block"><h3>Nhà thầu, đơn vị cung cấp dịch vụ trong kỳ</h3>${vendors.length?`<div class="tablewrap" style="border:0"><table><thead><tr><th>Đơn vị</th><th>Hợp đồng</th><th>Điểm</th><th class="r">Số việc</th><th class="r">Tổng chi</th><th>Gần nhất</th><th>Công việc</th></tr></thead><tbody>${vendors.map(v=>{const vd=state.vendors.find(x=>vkey(x.name)===vkey(v.name)),sc=vd?vendorScore(vd):{n:0,avg:0};return `<tr><td><strong>${esc(v.name)}</strong></td><td>${vd?contractPill(vd):"—"}</td><td>${sc.n?stars(sc.avg):"—"}</td><td class="r num">${v.n}</td><td class="r num">${money(v.sum)}</td><td class="num">${vdate(v.last)}</td><td>${v.items.map(esc).join("; ")}${v.n>v.items.length?"…":""}</td></tr>`}).join("")}</tbody></table></div>`:'<p class="meta">Không có đơn vị nào trong kỳ.</p>'}</section>
-  <section class="card rep-block"><h3>Hoạt động của Ban quản lý, Ban quản trị trong kỳ</h3><table class="rep"><tbody>
-    <tr><td>Khoản thu, chi đã ghi</td><td class="r num">${tx.filter(t=>!t.voided).length}</td></tr>
-    <tr><td>Khoản chi lớn đã được duyệt / đang chờ duyệt</td><td class="r num">${tx.filter(t=>t.approvedBy&&!t.voided).length} / ${tx.filter(t=>t.status==="pending"&&!t.voided).length}</td></tr>
-    <tr><td>Khoản bị hủy (còn lưu trong sổ)</td><td class="r num">${tx.filter(t=>t.voided).length}</td></tr>
-    <tr><td>Lượt bảo trì, sửa chữa, kiểm định</td><td class="r num">${mt.filter(m=>!["Sử dụng","Đề xuất"].includes(m.kind)).length}</td></tr>
-    <tr><td>Báo cáo hoạt động đã đăng (Đơn vị QLVH / Ban quản lý / Ban quản trị)</td><td class="r num">${NORGS.map(o=>nt.filter(n=>isRep(n)&&n.org===o).length).join(" / ")}</td></tr>
-    <tr><td>Thông báo đã đăng</td><td class="r num">${nt.filter(n=>n.type==="Thông báo").length}</td></tr>
-    <tr><td>Kế hoạch: dự kiến / đang thực hiện / hoàn thành</td><td class="r num">${pc("Dự kiến")} / ${pc("Đang thực hiện")} / ${pc("Hoàn thành")}</td></tr>
-    <tr><td>Biểu quyết đã tạo trong kỳ</td><td class="r num">${polls===null?"…":polls_in.length}</td></tr>
-    <tr><td>Lượt đặt tiện ích đã duyệt</td><td class="r num">${books===null?"…":bk.length}</td></tr></tbody></table></section>
+  ${orgBlock("Báo cáo hoạt động của Ban quản trị","Ban quản trị",[["Khoản chi lớn đã duyệt / đang chờ duyệt",`${tx.filter(t=>t.approvedBy&&!t.voided).length} / ${tx.filter(t=>t.status==="pending"&&!t.voided).length}`],["Khoản bị hủy (còn lưu trong sổ)",tx.filter(t=>t.voided).length],["Biểu quyết đã tạo trong kỳ",polls===null?"…":polls_in.length]],nt)}
+  ${orgBlock("Báo cáo hoạt động của Ban quản lý","Ban quản lý",[["Khoản thu, chi đã ghi",tx.filter(t=>!t.voided).length],["Lượt bảo trì, sửa chữa, kiểm định",mt.filter(m=>!["Sử dụng","Đề xuất"].includes(m.kind)).length],["Lượt đặt tiện ích đã duyệt",books===null?"…":bk.length]],nt)}
+  ${orgBlock("Báo cáo hoạt động của Đơn vị quản lý vận hành","Đơn vị quản lý vận hành",[],nt)}
   <section class="card rep-block"><h3>Tình hình thực hiện các biểu quyết</h3>${polls===null?'<p class="meta">Đang tải…</p>':impl.length?`<div class="list">${impl.map(p=>{const top=p.tally?p.options.slice().sort((a,b)=>(p.tally[b]||{units:0}).units-(p.tally[a]||{units:0}).units)[0]:"";return `<div class="item"><div class="t"><strong>${esc(p.title)}</strong><span>Kết quả: ${top?esc(top)+" ("+((p.tally[top]||{}).units||0)+"/"+p.voted+" căn)":"chưa công bố"}${p.implNote?" · "+esc(p.implNote):""}</span></div><span class="pill ${p.impl==="Đã thực hiện"?"good":p.impl==="Đang thực hiện"?"warn":"mute"}">${esc(p.impl||"Chưa cập nhật")}</span></div>`}).join("")}</div>`:'<p class="meta">Chưa có biểu quyết nào đã kết thúc.</p>'}</section>`;
 }
 

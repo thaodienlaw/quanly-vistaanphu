@@ -557,6 +557,9 @@ switch ($a) {
         $msg = str($body, 'message', 2000);
         if (mb_strlen($msg) < 3) out(400, ['error' => 'empty']);
         $kind = in_array($body['kind'] ?? '', ['Góp ý tính năng', 'Báo lỗi', 'Khác'], true) ? $body['kind'] : 'Khác';
+        $dup = $pdo->prepare('SELECT 1 FROM feedback WHERE message = ? AND ip = ? AND created > ?');
+        $dup->execute([$msg, $ip, time() - 300]);
+        if ($dup->fetchColumn()) out(200, ['ok' => true]); // bấm gửi 2 lần: bỏ qua bản trùng
         $pdo->prepare('INSERT INTO feedback (kind, message, name, contact, ip, created) VALUES (?,?,?,?,?,?)')->execute([$kind, $msg, str($body, 'name', 100), str($body, 'contact', 120), $ip, time()]);
         addHit($pdo, 'feedback', $ip);
         try {

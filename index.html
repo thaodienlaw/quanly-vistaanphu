@@ -865,7 +865,10 @@ function openModal(title,body,onSubmit,okLabel,noCancel){
   const m=$("#modal");
   m.innerHTML=`<div class="overlay" id="ov"><form class="modal" id="mform" role="dialog" aria-modal="true" aria-labelledby="mt"><h2 id="mt">${esc(title)}</h2>${body}<div class="modal-actions">${noCancel?"":'<button type="button" class="btn" data-close="1">Hủy</button>'}<button type="submit" class="btn primary">${esc(okLabel||"Lưu")}</button></div></form></div>`;
   const form=$("#mform");
-  form.addEventListener("submit",async e=>{e.preventDefault();if(await onSubmit(new FormData(form),form)!==false)closeModal()});
+  let busy=false;
+  form.addEventListener("submit",async e=>{e.preventDefault();if(busy)return;busy=true;const ok=form.querySelector("button[type=submit]");if(ok)ok.disabled=true;
+    let r;try{r=await onSubmit(new FormData(form),form)}finally{busy=false;if(ok&&ok.isConnected)ok.disabled=false}
+    if(r!==false)closeModal()});
   const first=form.querySelector("input:not([type=hidden]):not([type=file]),select,textarea");if(first)first.focus();
 }
 function closeModal(){$("#modal").innerHTML=""}

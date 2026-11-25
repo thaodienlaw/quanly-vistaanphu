@@ -337,7 +337,8 @@ switch ($a) {
             $who = actor(); $data['byName'] = $old['byName'] ?? $who['name'];
         } elseif ($col === 'notices') {
             if (trim((string)($data['title'] ?? '')) === '') out(400, ['error' => 'bad_request']);
-            if (!in_array($data['type'] ?? '', ['Thông báo', 'Kế hoạch ngày', 'Kế hoạch tháng', 'Kế hoạch năm'], true)) $data['type'] = 'Thông báo';
+            if (!in_array($data['type'] ?? '', ['Thông báo', 'Kế hoạch ngày', 'Kế hoạch tháng', 'Kế hoạch quý', 'Kế hoạch năm', 'Báo cáo tuần', 'Báo cáo tháng', 'Báo cáo quý', 'Báo cáo năm'], true)) $data['type'] = 'Thông báo';
+            if (!in_array($data['org'] ?? '', ['Đơn vị quản lý vận hành', 'Ban quản lý', 'Ban quản trị'], true)) $data['org'] = '';
             if (!in_array($data['status'] ?? '', ['Dự kiến', 'Đang thực hiện', 'Hoàn thành', ''], true)) $data['status'] = '';
             $data['title'] = mb_substr((string)$data['title'], 0, 160); $data['body'] = mb_substr((string)($data['body'] ?? ''), 0, 4000);
             $who = actor(); $data['byName'] = $old['byName'] ?? $who['name'];
@@ -932,7 +933,7 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         need($role, 2);
         $col = (string)($_POST['col'] ?? ''); $ref = (string)($_POST['id'] ?? '');
-        if (!in_array($col, ['txns', 'maints', 'assets', 'vendors'], true) || !preg_match($ID_RE, $ref) || !getDoc($pdo, $col, $ref)) out(400, ['error' => 'bad_request']);
+        if (!in_array($col, ['txns', 'maints', 'assets', 'vendors', 'notices'], true) || !preg_match($ID_RE, $ref) || !getDoc($pdo, $col, $ref)) out(400, ['error' => 'bad_request']);
         $f = $_FILES['file'] ?? null;
         if (!$f || $f['error'] !== UPLOAD_ERR_OK || !is_uploaded_file($f['tmp_name'])) out(400, ['error' => 'no_file']);
         if ($f['size'] > 6000000) out(413, ['error' => 'too_large']);

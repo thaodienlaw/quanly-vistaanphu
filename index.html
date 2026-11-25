@@ -152,7 +152,7 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:cent
     </div>
     <nav class="tabs" aria-label="Chuyên mục">
       <button data-tab="tong-quan">Tổng quan</button>
-      <button data-tab="thong-bao">Thông báo</button>
+      <button data-tab="thong-bao">Thông báo, báo cáo</button>
       <button data-tab="thu-chi">Thu chi</button>
       <button data-tab="tai-san">Tài sản</button>
       <button data-tab="bao-tri">Bảo trì</button>
@@ -182,7 +182,9 @@ const CATS={
 const KINDS=["Thiết bị","Máy móc","Xe","Khác"];
 const STATUSES=["Tốt","Cần theo dõi","Hỏng","Ngưng sử dụng"];
 const MKINDS=["Bảo trì","Sửa chữa","Kiểm định","Sử dụng","Đề xuất"];
-const NTYPES=["Thông báo","Kế hoạch ngày","Kế hoạch tháng","Kế hoạch năm"];
+const NTYPES=["Thông báo","Kế hoạch ngày","Kế hoạch tháng","Kế hoạch quý","Kế hoạch năm","Báo cáo tuần","Báo cáo tháng","Báo cáo quý","Báo cáo năm"];
+const NORGS=["Đơn vị quản lý vận hành","Ban quản lý","Ban quản trị"];
+const isPlan=n=>String(n.type).startsWith("Kế hoạch"),isRep=n=>String(n.type).startsWith("Báo cáo");
 const NSTAT=["Dự kiến","Đang thực hiện","Hoàn thành"];
 const ROLES={admin:"Trưởng ban (toàn quyền)",editor:"Kế toán, Ban quản lý (nhập liệu)",viewer:"Cư dân (chỉ xem)"};
 const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","nha-thau","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","quan-tri"];
@@ -210,7 +212,7 @@ function opt(list,sel,all){return (all?`<option value="">${all}</option>`:"")+li
 let state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};
 let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={}, facs=null, books=null;
 let filt={
-  notice:{type:""},
+  notice:{type:"",org:""},
   unit:{q:""},
   vendor:{q:""},
   veh:{status:"",type:"",q:""},
@@ -409,7 +411,7 @@ function vOverview(){
   const notes=[...state.notices].sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id)).slice(0,3);
   const recent=[...state.txns].filter(t=>!t.voided).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id)).slice(0,6);
   return notices()+`<div class="grid2">${fundCard("maint")}${fundCard("ops")}</div>
-  ${notes.length?`<section class="card"><div class="head-row"><h2>Thông báo, kế hoạch mới</h2><button class="btn small" data-tab="thong-bao">Xem tất cả</button></div><div class="list">${notes.map(n=>`<div class="item"><div class="t"><strong>${esc(n.title)}</strong><span>${esc(n.type)} · ${vdate(n.date)}</span></div>${n.status?`<span class="pill mute">${esc(n.status)}</span>`:""}</div>`).join("")}</div></section>`:""}
+  ${notes.length?`<section class="card"><div class="head-row"><h2>Thông báo, kế hoạch, báo cáo mới</h2><button class="btn small" data-tab="thong-bao">Xem tất cả</button></div><div class="list">${notes.map(n=>`<div class="item"><div class="t"><strong>${esc(n.title)}</strong><span>${esc(n.type)}${n.org?" · "+esc(n.org):""} · ${vdate(n.date)}</span></div>${n.status?`<span class="pill mute">${esc(n.status)}</span>`:""}</div>`).join("")}</div></section>`:""}
   <div class="grid2">
     <section class="card"><div class="head-row"><h2>Cần xử lý</h2><button class="btn small" data-tab="bao-tri">Xem lịch</button></div>${dueItems(alerts,"Không có mốc nào quá hạn hoặc sắp đến hạn trong 30 ngày.")}</section>
     <section class="card"><div class="head-row"><h2>Thu chi 6 tháng</h2><div class="legend"><span><i style="background:var(--in)"></i>Thu</span><span><i style="background:var(--out)"></i>Chi</span></div></div>${chart}</section>
@@ -520,21 +522,22 @@ function vReport(){
 /* ---------- thông báo và kế hoạch ---------- */
 function vNotices(){
   const f=filt.notice;
-  const rows=state.notices.filter(n=>!f.type||n.type===f.type).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
-  return `<div class="head-row"><h2>Thông báo và kế hoạch</h2><button class="btn primary" data-act="add-notice">+ Đăng mới</button></div>
-  <div class="filters"><label>Loại<select id="fn-type" data-f="notice.type">${opt(NTYPES,f.type,"Tất cả")}</select></label></div>
-  ${rows.length?'<div class="list">'+rows.map(n=>`<div class="item fb"><div class="t"><strong>${esc(n.title)}</strong> <span class="pill ${n.type==="Thông báo"?"mute":"good"}">${esc(n.type)}</span>${n.status?` <span class="pill ${n.status==="Hoàn thành"?"good":n.status==="Đang thực hiện"?"warn":"mute"}">${esc(n.status)}</span>`:""}<span style="display:block">${vdate(n.date)}${n.byName?" · "+esc(n.byName):""}</span>${n.body?`<p>${esc(n.body)}</p>`:""}</div><div class="actions"><button class="btn small" data-act="edit-notice" data-id="${esc(n.id)}">Sửa</button><button class="btn small danger" data-act="del-notice" data-id="${esc(n.id)}">Xóa</button></div></div>`).join("")+"</div>":'<div class="card empty">Chưa có thông báo hay kế hoạch nào.</div>'}`;
+  const rows=state.notices.filter(n=>(!f.type||n.type===f.type)&&(!f.org||n.org===f.org)).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
+  return `<div class="head-row"><h2>Thông báo, kế hoạch và báo cáo hoạt động</h2><button class="btn primary" data-act="add-notice">+ Đăng mới</button></div>
+  <div class="filters"><label>Loại<select id="fn-type" data-f="notice.type">${opt(NTYPES,f.type,"Tất cả")}</select></label><label>Đơn vị<select id="fn-org" data-f="notice.org">${opt(NORGS,f.org,"Tất cả")}</select></label></div>
+  ${rows.length?'<div class="list">'+rows.map(n=>`<div class="item fb"><div class="t"><strong>${esc(n.title)}</strong> <span class="pill ${n.type==="Thông báo"?"mute":isRep(n)?"warn":"good"}">${esc(n.type)}</span>${n.org?` <span class="pill mute">${esc(n.org)}</span>`:""}${n.status?` <span class="pill ${n.status==="Hoàn thành"?"good":n.status==="Đang thực hiện"?"warn":"mute"}">${esc(n.status)}</span>`:""}<span style="display:block">${vdate(n.date)}${n.byName?" · "+esc(n.byName):""}</span>${n.body?`<p>${esc(n.body)}</p>`:""}</div><div class="actions"><button class="btn small" data-act="notice-files" data-id="${esc(n.id)}">Tệp${state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length?" ("+state.files.filter(x=>x.col==="notices"&&x.ref===n.id).length+")":""}</button><button class="btn small" data-act="edit-notice" data-id="${esc(n.id)}">Sửa</button><button class="btn small danger" data-act="del-notice" data-id="${esc(n.id)}">Xóa</button></div></div>`).join("")+"</div>":'<div class="card empty">Chưa có thông báo, kế hoạch hay báo cáo nào.</div>'}`;
 }
 function noticeForm(n){
-  const cur=n||{type:"Thông báo",title:"",date:today(),status:"",body:""};
-  openModal(n?"Sửa bài đăng":"Đăng thông báo, kế hoạch",`<div class="fields">
+  const cur=n||{type:"Thông báo",org:"Đơn vị quản lý vận hành",title:"",date:today(),status:"",body:""};
+  openModal(n?"Sửa bài đăng":"Đăng thông báo, kế hoạch, báo cáo",`<div class="fields">
     ${F("n-type","Loại",`<select id="n-type" name="type">${opt(NTYPES,cur.type)}</select>`)}
+    ${F("n-org","Đơn vị đăng",`<select id="n-org" name="org">${opt(NORGS,cur.org||"Đơn vị quản lý vận hành")}</select>`,"full")}
     ${F("n-date","Ngày (hoặc ngày bắt đầu)",`<input id="n-date" name="date" type="date" required value="${esc(cur.date)}">`)}
     ${F("n-title","Tiêu đề",`<input id="n-title" name="title" required maxlength="160" value="${esc(cur.title)}">`,"full")}
     ${F("n-st","Tiến độ (cho kế hoạch)",`<select id="n-st" name="status">${opt(NSTAT,cur.status,"Không áp dụng")}</select>`,"full")}
     ${F("n-body","Nội dung",`<textarea id="n-body" name="body" rows="6" maxlength="4000">${esc(cur.body||"")}</textarea>`,"full")}
   </div>`,async fd=>{
-    return !!(await put("notices",n?n.id:"n"+uid(),{type:fd.get("type"),date:fd.get("date"),title:fd.get("title").trim(),status:fd.get("status"),body:fd.get("body").trim()}));
+    return !!(await put("notices",n?n.id:"n"+uid(),{type:fd.get("type"),org:fd.get("org"),date:fd.get("date"),title:fd.get("title").trim(),status:fd.get("status"),body:fd.get("body").trim()}));
   });
 }
 
@@ -808,7 +811,7 @@ function activityReport(rg){
   const tx=state.txns.filter(t=>inR(t.date));
   const mt=state.maints.filter(m=>inR(m.date));
   const nt=state.notices.filter(n=>inR(n.date));
-  const plans=nt.filter(n=>n.type!=="Thông báo");
+  const plans=nt.filter(isPlan);
   const pc=st=>plans.filter(n=>(n.status||"Dự kiến")===st).length;
   const pl=polls&&polls.items?polls.items:[];
   const polls_in=pl.filter(p=>{const d=new Date(p.created*1000);return inR(ymd(d))});
@@ -820,6 +823,7 @@ function activityReport(rg){
     <tr><td>Khoản chi lớn đã được duyệt / đang chờ duyệt</td><td class="r num">${tx.filter(t=>t.approvedBy&&!t.voided).length} / ${tx.filter(t=>t.status==="pending"&&!t.voided).length}</td></tr>
     <tr><td>Khoản bị hủy (còn lưu trong sổ)</td><td class="r num">${tx.filter(t=>t.voided).length}</td></tr>
     <tr><td>Lượt bảo trì, sửa chữa, kiểm định</td><td class="r num">${mt.filter(m=>!["Sử dụng","Đề xuất"].includes(m.kind)).length}</td></tr>
+    <tr><td>Báo cáo hoạt động đã đăng (Đơn vị QLVH / Ban quản lý / Ban quản trị)</td><td class="r num">${NORGS.map(o=>nt.filter(n=>isRep(n)&&n.org===o).length).join(" / ")}</td></tr>
     <tr><td>Thông báo đã đăng</td><td class="r num">${nt.filter(n=>n.type==="Thông báo").length}</td></tr>
     <tr><td>Kế hoạch: dự kiến / đang thực hiện / hoàn thành</td><td class="r num">${pc("Dự kiến")} / ${pc("Đang thực hiện")} / ${pc("Hoàn thành")}</td></tr>
     <tr><td>Biểu quyết đã tạo trong kỳ</td><td class="r num">${polls===null?"…":polls_in.length}</td></tr>
@@ -1053,7 +1057,7 @@ function drawFiles(){
 }
 function filesModal(col,id){
   filesCtx={col,id};
-  const title=col==="txns"?"Chứng từ của giao dịch":col==="maints"?"Chứng từ của lần bảo trì":"Hồ sơ tài sản";
+  const title=col==="txns"?"Chứng từ của giao dịch":col==="maints"?"Chứng từ của lần bảo trì":col==="notices"?"Tệp đính kèm bài đăng":"Hồ sơ tài sản";
   openModal(title,`<div class="list" id="flist"></div>${isEd()?'<div><input id="fup" type="file" accept="image/*,application/pdf" multiple><p id="fstat" style="margin:6px 0 0;font-size:13px;color:var(--muted)">Nhận ảnh JPG, PNG, WebP và PDF, tối đa 10 tệp. Ảnh lớn được thu nhỏ tự động.</p></div>':""}`,()=>{filesCtx=null},"Đóng",true);
   drawFiles();
 }
@@ -1193,6 +1197,7 @@ document.addEventListener("click",async e=>{
   }
   else if(act==="asset-detail")assetDetail(id);
   else if(act==="add-notice")noticeForm();
+  else if(act==="notice-files")filesModal("notices",id);
   else if(act==="edit-notice")noticeForm(state.notices.find(n=>n.id===id));
   else if(act==="del-notice"){const n=state.notices.find(x=>x.id===id);confirmBox("Xóa bài đăng?",`Xóa “${esc(n.title)}”?`,"Xóa",()=>del("notices",id))}
   else if(act==="comment-add"){

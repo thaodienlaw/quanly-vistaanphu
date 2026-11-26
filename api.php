@@ -43,6 +43,9 @@ try { $pdo->exec('ALTER TABLE users ADD COLUMN must_change INTEGER NOT NULL DEFA
 try { $pdo->exec('ALTER TABLE users ADD COLUMN totp_secret TEXT'); } catch (Throwable $e) {}
 try { $pdo->exec('ALTER TABLE users ADD COLUMN totp_on INTEGER NOT NULL DEFAULT 0'); } catch (Throwable $e) {}
 try { $pdo->exec('ALTER TABLE users ADD COLUMN totp_last INTEGER NOT NULL DEFAULT 0'); } catch (Throwable $e) {}
+try { $pdo->exec('ALTER TABLE users ADD COLUMN grp TEXT'); } catch (Throwable $e) {}
+try { $pdo->exec('ALTER TABLE users ADD COLUMN code TEXT'); } catch (Throwable $e) {}
+$pdo->exec('CREATE TABLE IF NOT EXISTS ugroups (id TEXT PRIMARY KEY, abbr TEXT NOT NULL UNIQUE, code TEXT NOT NULL, name TEXT NOT NULL, caps TEXT NOT NULL, note TEXT, created INTEGER NOT NULL)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, col TEXT, doc TEXT, summary TEXT, before TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, name TEXT NOT NULL, mime TEXT NOT NULL, size INTEGER NOT NULL, ref_col TEXT NOT NULL, ref_id TEXT NOT NULL, ts INTEGER NOT NULL, actor TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS comments (id INTEGER PRIMARY KEY AUTOINCREMENT, asset_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, uid TEXT, ts INTEGER NOT NULL)');
@@ -61,9 +64,11 @@ $a = (string)($_GET['a'] ?? '');
 $method = $_SERVER['REQUEST_METHOD'];
 $role = $_SESSION['role'] ?? null;
 $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
-$RANK = ['viewer' => 1, 'auditor' => 1, 'accountant' => 2, 'manager' => 2, 'board' => 2, 'editor' => 2, 'admin' => 3];
+$RANK = ['viewer' => 1, 'auditor' => 1, 'accountant' => 2, 'manager' => 2, 'board' => 2, 'editor' => 2, 'staff' => 2, 'admin' => 3];
 // Quyền theo từng việc. editor = vai trò cũ (Kế toán/Ban quản lý), giữ nguyên quyền như trước.
 $CAPS = [
+    'fund'     => ['viewer', 'editor', 'admin', 'accountant', 'manager', 'board', 'auditor'], // xem thu chi, số dư quỹ, báo cáo quỹ
+    'resident' => ['viewer', 'editor', 'admin', 'accountant', 'manager', 'board', 'auditor'], // hiện menu Căn hộ, Gửi xe, Biểu quyết, Tiện ích (chỉ ẩn hiện menu)
     'seeall'   => ['editor', 'admin', 'accountant', 'manager', 'board', 'auditor'], // xem hồ sơ nhà thầu, căn hộ, xe, phiếu, tệp hợp đồng
     'manage'   => ['editor', 'admin', 'manager', 'board'],                           // tài sản, bảo trì, nhà thầu, thông báo, báo cáo, duyệt xe và tiện ích
     'txn'      => ['editor', 'admin', 'accountant', 'manager'],                      // ghi, sửa, hủy thu chi và chứng từ thu chi
@@ -76,6 +81,36 @@ $CAPS = [
 $COLS = ['txns', 'assets', 'maints', 'notices', 'vendors', 'vratings', 'settings'];
 $ID_RE = '/^[A-Za-z0-9_.:@+~-]{1,100}$/';
 
+/* Vai trò và nhóm lấy từ CSDL ở mỗi yêu cầu: đổi nhóm, khóa tài khoản có hiệu lực ngay. */
+const CAP_NAMES = ['fund', 'txn', 'approve', 'manage', 'seeall', 'facility', 'govern', 'audit', 'resident'];
+$MYCAPS = null; $MYGROUP = null; $MYCODE = '';
+function resolveIdentity(PDO $pdo): void {
+    global $role, $MYCAPS, $MYGROUP, $MYCODE;
+    $MYCAPS = null; $MYGROUP = null; $MYCODE = '';
+    if (!$role || empty($_SESSION['uid'])) return;
+    $q = $pdo->prepare('SELECT u.role, u.active, u.grp, u.code, g.caps, g.code AS gcode, g.name AS gname FROM users u LEFT JOIN ugroups g ON g.id = u.grp WHERE u.id = ?');
+    $q->execute([$_SESSION['uid']]);
+    $ur = $q->fetch(PDO::FETCH_ASSOC);
+    if (!$ur || !(int)$ur['active']) { $role = null; $_SESSION = []; return; }
+    $role = $ur['role'];
+    if ($role === 'staff') {
+        $MYCAPS = $ur['gname'] !== null ? array_values(array_intersect(CAP_NAMES, (array)json_decode((string)$ur['caps'], true))) : [];
+        $MYGROUP = ['code' => $ur['gcode'], 'name' => $ur['gname']];
+    }
+    $MYCODE = (string)$ur['code'];
+}
+function capList(?string $role): array {
+    global $CAPS, $MYCAPS;
+    if ($role === 'staff') return $MYCAPS ?? [];
+    $o = [];
+    foreach ($CAPS as $c => $rs) if ($role && in_array($role, $rs, true)) $o[] = $c;
+    return $o;
+}
+function identity(?string $role): array {
+    global $MYGROUP, $MYCODE;
+    return ['caps' => capList($role), 'group' => $MYGROUP['name'] ?? null, 'groupCode' => $MYGROUP['code'] ?? null, 'code' => $MYCODE];
+}
+
 /* ---------- tiện ích ---------- */
 function need(?string $role, int $min): void {
     global $RANK;
@@ -83,7 +118,8 @@ function need(?string $role, int $min): void {
     if ($RANK[$role] < $min) out(403, ['error' => 'forbidden']);
 }
 function can(?string $role, string $cap): bool {
-    global $CAPS;
+    global $CAPS, $MYCAPS;
+    if ($role === 'staff') return is_array($MYCAPS) && in_array($cap, $MYCAPS, true);
     return $role !== null && in_array($role, $CAPS[$cap] ?? [], true);
 }
 function needCap(?string $role, string $cap): void {
@@ -239,6 +275,120 @@ function allDocs(PDO $pdo, string $col): array {
     foreach ($s as $r) { $d = json_decode($r['data'], true); if (is_array($d)) { $d['id'] = $r['id']; $res[] = $d; } }
     return $res;
 }
+/* ---------- nhóm và quy tắc mã ---------- */
+function codeRulesDefault(): array {
+    return [
+        'group'        => ['label' => 'Nhóm',                 'prefix' => 'NH', 'year' => false, 'width' => 0, 'eg' => 'NH-KT'],
+        'userAdmin'    => ['label' => 'Người dùng: Trưởng ban', 'prefix' => 'AD', 'year' => false, 'width' => 3, 'eg' => 'AD-001'],
+        'userStaff'    => ['label' => 'Người dùng: nhân viên (tiền tố là mã nhóm)', 'prefix' => '', 'year' => false, 'width' => 3, 'eg' => 'KT-001'],
+        'userResident' => ['label' => 'Người dùng: cư dân',     'prefix' => 'CD', 'year' => false, 'width' => 3, 'eg' => 'CD-001'],
+        'userOther'    => ['label' => 'Người dùng: khác',       'prefix' => 'NV', 'year' => false, 'width' => 3, 'eg' => 'NV-001'],
+        'asset'        => ['label' => 'Tài sản',                'prefix' => 'TS', 'year' => false, 'width' => 4, 'eg' => 'TS-0012'],
+        'maint'        => ['label' => 'Bảo trì, sửa chữa',      'prefix' => 'BT', 'year' => true,  'width' => 4, 'eg' => 'BT-2026-0007'],
+        'txnIn'        => ['label' => 'Phiếu thu',              'prefix' => 'PT', 'year' => true,  'width' => 4, 'eg' => 'PT-2026-0015'],
+        'txnOut'       => ['label' => 'Phiếu chi',              'prefix' => 'PC', 'year' => true,  'width' => 4, 'eg' => 'PC-2026-0031'],
+        'vendor'       => ['label' => 'Nhà thầu',               'prefix' => 'NT', 'year' => false, 'width' => 3, 'eg' => 'NT-004'],
+    ];
+}
+function codeRules(PDO $pdo): array {
+    $r = codeRulesDefault();
+    $c = json_decode((string)(metaGet($pdo, 'code_rules') ?? ''), true);
+    if (is_array($c)) foreach ($r as $k => &$v) if (isset($c[$k]) && is_array($c[$k])) {
+        if (isset($c[$k]['prefix']) && $k !== 'userStaff') $v['prefix'] = (string)$c[$k]['prefix'];
+        if (isset($c[$k]['year']) && $k !== 'group') $v['year'] = (bool)$c[$k]['year'];
+        if (isset($c[$k]['width']) && $v['width'] > 0) $v['width'] = (int)$c[$k]['width'];
+    }
+    return $r;
+}
+function codeExists(PDO $pdo, string $code): bool {
+    $s = $pdo->prepare("SELECT 1 FROM docs WHERE data LIKE ? LIMIT 1");
+    $s->execute(['%"code":' . json_encode($code, JSON_UNESCAPED_UNICODE) . '%']);
+    if ($s->fetchColumn()) return true;
+    $u = $pdo->prepare('SELECT 1 FROM users WHERE code = ? LIMIT 1'); $u->execute([$code]);
+    return (bool)$u->fetchColumn();
+}
+/** Cấp mã kế tiếp theo quy tắc. $year dùng cho loại có năm; $abbr cho người dùng nhân viên (mã nhóm). */
+function nextCode(PDO $pdo, string $key, ?string $year = null, string $abbr = ''): string {
+    $r = codeRules($pdo)[$key];
+    $prefix = $key === 'userStaff' ? $abbr : $r['prefix'];
+    $y = !empty($r['year']) ? (preg_match('/^\d{4}$/', (string)$year) ? $year : date('Y')) : '';
+    $sk = 'seq:' . $prefix . ($y !== '' ? '-' . $y : '');
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        for ($i = 0; $i < 200; $i++) {
+            $n = (int)(metaGet($pdo, $sk) ?? 0) + 1;
+            metaSet($pdo, $sk, (string)$n);
+            $code = $prefix . '-' . ($y !== '' ? $y . '-' : '') . str_pad((string)$n, (int)$r['width'], '0', STR_PAD_LEFT);
+            if (!codeExists($pdo, $code)) { $pdo->exec('COMMIT'); return $code; }
+        }
+        $pdo->exec('ROLLBACK');
+    } catch (Throwable $e) { try { $pdo->exec('ROLLBACK'); } catch (Throwable $e2) {} throw $e; }
+    throw new RuntimeException('code');
+}
+function docCodeKey(string $col, array $d): ?string {
+    if ($col === 'assets') return 'asset';
+    if ($col === 'maints') return 'maint';
+    if ($col === 'vendors') return 'vendor';
+    if ($col === 'txns') return ($d['type'] ?? '') === 'in' ? 'txnIn' : 'txnOut';
+    return null;
+}
+function docYear(array $d): ?string {
+    return preg_match('/^(\d{4})-/', (string)($d['date'] ?? ''), $m) ? $m[1] : null;
+}
+function userCodeKey(string $role): string {
+    return $role === 'admin' ? 'userAdmin' : ($role === 'staff' ? 'userStaff' : ($role === 'viewer' ? 'userResident' : 'userOther'));
+}
+function backfillCodes(PDO $pdo): int {
+    $n = 0;
+    foreach (['assets', 'maints', 'vendors', 'txns'] as $col) {
+        $docs = allDocs($pdo, $col);
+        usort($docs, fn($a, $b) => [(string)($a['date'] ?? ''), (int)($a['at'] ?? 0), $a['id']] <=> [(string)($b['date'] ?? ''), (int)($b['at'] ?? 0), $b['id']]);
+        foreach ($docs as $d) {
+            if (!empty($d['code'])) continue;
+            $id = $d['id']; unset($d['id']);
+            $d['code'] = nextCode($pdo, docCodeKey($col, $d), docYear($d));
+            setDoc($pdo, $col, $id, $d); $n++;
+        }
+    }
+    $us = $pdo->query("SELECT u.id, u.role, g.abbr FROM users u LEFT JOIN ugroups g ON g.id = u.grp WHERE u.code IS NULL OR u.code = '' ORDER BY u.created")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($us as $u) {
+        $k = userCodeKey($u['role']);
+        if ($k === 'userStaff' && !$u['abbr']) $k = 'userOther';
+        $pdo->prepare('UPDATE users SET code = ? WHERE id = ?')->execute([nextCode($pdo, $k, null, (string)$u['abbr']), $u['id']]); $n++;
+    }
+    return $n;
+}
+/** Lần đầu: tạo 5 nhóm mẫu, chuyển tài khoản cũ vào nhóm tương ứng, đánh mã cho hồ sơ đã có. */
+function bootGroups(PDO $pdo): void {
+    if (metaGet($pdo, 'groups_v1') !== '1') {
+        $seed = [
+            ['QLC', 'Quản lý chung', ['fund', 'txn', 'manage', 'seeall', 'facility', 'resident'], 'Điều hành chung: ghi thu chi, tài sản, bảo trì, nhà thầu, tiện ích.'],
+            ['KT',  'Kỹ thuật',      ['manage', 'seeall'], 'Tài sản, bảo trì, nhà thầu. Không xem số dư quỹ và thu chi.'],
+            ['KE',  'Kế toán',       ['fund', 'txn', 'seeall'], 'Ghi thu chi, xem quỹ và báo cáo quỹ.'],
+            ['BQT', 'Ban quản trị',  ['fund', 'seeall', 'manage', 'approve', 'govern', 'facility', 'audit', 'resident'], 'Duyệt chi lớn, biểu quyết, xem nhật ký.'],
+            ['KS',  'Kiểm soát',     ['fund', 'seeall', 'audit', 'resident'], 'Chỉ xem, kể cả nhật ký thay đổi.'],
+        ];
+        $ids = [];
+        foreach ($seed as [$ab, $nm, $caps, $note]) {
+            $e = $pdo->prepare('SELECT id FROM ugroups WHERE abbr = ?'); $e->execute([$ab]);
+            $gid = $e->fetchColumn();
+            if (!$gid) {
+                $gid = 'g' . bin2hex(random_bytes(5));
+                $pdo->prepare('INSERT INTO ugroups (id, abbr, code, name, caps, note, created) VALUES (?,?,?,?,?,?,?)')->execute([$gid, $ab, codeRules($pdo)['group']['prefix'] . '-' . $ab, $nm, json_encode($caps), $note, time()]);
+            }
+            $ids[$ab] = $gid;
+        }
+        foreach (['manager' => 'QLC', 'accountant' => 'KE', 'board' => 'BQT', 'auditor' => 'KS'] as $old => $ab) {
+            $pdo->prepare("UPDATE users SET role = 'staff', grp = ? WHERE role = ?")->execute([$ids[$ab], $old]);
+        }
+        metaSet($pdo, 'groups_v1', '1');
+    }
+    if (metaGet($pdo, 'codes_v1') !== '1') {
+        backfillCodes($pdo);
+        metaSet($pdo, 'codes_v1', '1');
+    }
+}
+
 /** Danh sách mốc bảo trì, kiểm định, bảo hành đã quá hạn hoặc còn ≤ 30 ngày. */
 function dueSoon(PDO $pdo): array {
     $assets = allDocs($pdo, 'assets'); $maints = allDocs($pdo, 'maints');
@@ -297,13 +447,15 @@ if ($method === 'POST') {
 }
 
 /* ---------- xử lý ---------- */
+bootGroups($pdo);
+resolveIdentity($pdo);
 if ($role && !empty($_SESSION['mc']) && !in_array($a, ['me', 'logout', 'mypasswd'], true)) out(403, ['error' => 'must_change']);
 
 switch ($a) {
 
     case 'me': {
         $hasUsers = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE active = 1')->fetchColumn() > 0;
-        out(200, ['role' => $role, 'uid' => $_SESSION['uid'] ?? null, 'name' => $_SESSION['name'] ?? null, 'unit' => $role ? myUnit($pdo) : '', 'legacy' => $role && !isset($_SESSION['uid']), 'hasUsers' => $hasUsers] + ($role ? secInfo($pdo) : []));
+        out(200, ['role' => $role, 'uid' => $_SESSION['uid'] ?? null, 'name' => $_SESSION['name'] ?? null, 'unit' => $role ? myUnit($pdo) : '', 'legacy' => $role && !isset($_SESSION['uid']), 'hasUsers' => $hasUsers] + ($role ? secInfo($pdo) + identity($role) : []));
     }
 
     case 'login': {
@@ -339,7 +491,8 @@ switch ($a) {
         $_SESSION = [];
         foreach ($session as $k => $v) $_SESSION[$k] = $v;
         $hasUsers = (int)$pdo->query('SELECT COUNT(*) FROM users WHERE active = 1')->fetchColumn() > 0;
-        out(200, ['role' => $session['role'], 'uid' => $session['uid'] ?? null, 'name' => $session['name'] ?? null, 'unit' => myUnit($pdo), 'legacy' => !isset($session['uid']), 'hasUsers' => $hasUsers] + secInfo($pdo));
+        $role = $session['role']; resolveIdentity($pdo);
+        out(200, ['role' => $role, 'uid' => $session['uid'] ?? null, 'name' => $session['name'] ?? null, 'unit' => myUnit($pdo), 'legacy' => !isset($session['uid']), 'hasUsers' => $hasUsers] + secInfo($pdo) + identity($role));
     }
 
     case 'totp_setup': {
@@ -423,6 +576,11 @@ switch ($a) {
         $res['comments'] = $pdo->query('SELECT id, asset_id AS assetId, name, text, uid, ts FROM comments ORDER BY id DESC LIMIT 2000')->fetchAll(PDO::FETCH_ASSOC);
         $res['files'] = $pdo->query('SELECT id, name, mime, size, ref_col AS col, ref_id AS ref, ts FROM files ORDER BY ts')->fetchAll(PDO::FETCH_ASSOC);
         if (!can($role, 'seeall')) $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'vendors'));
+        if (!can($role, 'fund')) {   // nhóm không được xem quỹ: bỏ thu chi, số dư đầu kỳ, hạn mức duyệt và chứng từ thu chi
+            $res['txns'] = [];
+            $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'txns'));
+            if (is_array($res['settings'])) unset($res['settings']['openMaint'], $res['settings']['openOps'], $res['settings']['approvalLimit']);
+        }
         $res['meta'] = ['lastExport' => metaGet($pdo, 'last_export'), 'legacyOff' => metaGet($pdo, 'legacy_off') === '1'];
         // Trả dữ liệu trước, việc nền (sao lưu, gửi mail nhắc) làm sau để trang không phải chờ.
         $canRemind = can($role, 'manage');
@@ -498,6 +656,9 @@ switch ($a) {
             $who = actor(); $data['byName'] = $old['byName'] ?? $who['name'];
         } elseif ($col === 'assets') {
             if (trim((string)($data['name'] ?? '')) === '') out(400, ['error' => 'bad_request']);
+        }
+        if (($k = docCodeKey($col, $data)) !== null) {   // mã tự sinh theo quy tắc, không sửa tay
+            $data['code'] = !empty($old['code']) ? $old['code'] : nextCode($pdo, $k, docYear($data));
         }
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
         if (strlen($json) > 60000) out(413, ['error' => 'too_large']);
@@ -579,7 +740,7 @@ switch ($a) {
 
     case 'users_list': {
         needCap($role, 'system');
-        out(200, ['items' => $pdo->query('SELECT id, username, name, role, active, created, unit, totp_on AS totp, must_change AS mustChange FROM users ORDER BY created')->fetchAll(PDO::FETCH_ASSOC)]);
+        out(200, ['items' => $pdo->query('SELECT u.id, u.username, u.name, u.role, u.active, u.created, u.unit, u.totp_on AS totp, u.must_change AS mustChange, u.grp, u.code, g.name AS gname, g.code AS gcode FROM users u LEFT JOIN ugroups g ON g.id = u.grp ORDER BY u.created')->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     case 'user_save': {
@@ -587,12 +748,20 @@ switch ($a) {
         needCap($role, 'system');
         $id = (string)($body['id'] ?? '');
         $name = str($body, 'name', 80);
-        $rl = (string)($body['role'] ?? 'editor');
+        $rl = (string)($body['role'] ?? 'staff');
+        $grp = (string)($body['grp'] ?? '');
         $active = !empty($body['active']) ? 1 : 0;
         $pw = (string)($body['password'] ?? '');
         $unit = normUnit((string)($body['unit'] ?? ''));
         if ($unit !== '') { $q = $pdo->prepare('SELECT COUNT(*) FROM units WHERE id = ?'); $q->execute([$unit]); if (!(int)$q->fetchColumn()) out(400, ['error' => 'bad_unit']); }
-        if ($name === '' || !in_array($rl, ['admin', 'board', 'manager', 'accountant', 'auditor', 'editor', 'viewer'], true)) out(400, ['error' => 'bad_request']);
+        if ($name === '' || !in_array($rl, ['admin', 'staff', 'editor', 'viewer'], true)) out(400, ['error' => 'bad_request']);
+        $abbr = '';
+        if ($rl === 'staff') {
+            $g = $pdo->prepare('SELECT abbr FROM ugroups WHERE id = ?'); $g->execute([$grp]);
+            $abbr = (string)$g->fetchColumn();
+            if ($abbr === '') out(400, ['error' => 'bad_group']);
+        } else { $grp = ''; }
+        $grpv = $grp !== '' ? $grp : null;
         if ($pw !== '' && (mb_strlen($pw) < 8 || mb_strlen($pw) > 100)) out(400, ['error' => 'bad_password_format']);
         if ($id === '') {
             $un = strtolower(str($body, 'username', 30));
@@ -600,23 +769,101 @@ switch ($a) {
             $ex = $pdo->prepare('SELECT COUNT(*) FROM users WHERE username = ?'); $ex->execute([$un]);
             if ((int)$ex->fetchColumn() > 0) out(409, ['error' => 'username_taken']);
             $nid = 'u' . bin2hex(random_bytes(6));
-            $pdo->prepare('INSERT INTO users (id, username, name, role, hash, active, created, unit, must_change) VALUES (?,?,?,?,?,?,?,?,1)')->execute([$nid, $un, $name, $rl, password_hash($pw, PASSWORD_DEFAULT), 1, time(), $unit]);
-            audit($pdo, 'tạo tài khoản', 'users', $nid, "$un ($rl)");
+            $ucode = nextCode($pdo, userCodeKey($rl), null, $abbr);
+            $pdo->prepare('INSERT INTO users (id, username, name, role, hash, active, created, unit, must_change, grp, code) VALUES (?,?,?,?,?,?,?,?,1,?,?)')->execute([$nid, $un, $name, $rl, password_hash($pw, PASSWORD_DEFAULT), 1, time(), $unit, $grpv, $ucode]);
+            audit($pdo, 'tạo tài khoản', 'users', $nid, "$ucode · $un ($rl" . ($abbr !== '' ? ", nhóm $abbr" : '') . ')');
         } else {
             $s = $pdo->prepare('SELECT * FROM users WHERE id = ?'); $s->execute([$id]);
             $u = $s->fetch(PDO::FETCH_ASSOC);
             if (!$u) out(404, ['error' => 'not_found']);
-            $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ?, unit = ? WHERE id = ?')->execute([$name, $rl, $active, $unit, $id]);
+            if ($id === ($_SESSION['uid'] ?? '') && ($u['role'] === 'admin' && ($rl !== 'admin' || !$active))) out(409, ['error' => 'self_lock']);
+            $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ?, unit = ?, grp = ? WHERE id = ?')->execute([$name, $rl, $active, $unit, $grpv, $id]);
+            if (empty($u['code'])) $pdo->prepare('UPDATE users SET code = ? WHERE id = ?')->execute([nextCode($pdo, userCodeKey($rl), null, $abbr), $id]);
             if ($pw !== '') $pdo->prepare('UPDATE users SET hash = ?, must_change = 1 WHERE id = ?')->execute([password_hash($pw, PASSWORD_DEFAULT), $id]);
             if (!empty($body['reset2fa'])) { $pdo->prepare('UPDATE users SET totp_on = 0, totp_secret = NULL, totp_last = 0 WHERE id = ?')->execute([$id]); audit($pdo, 'tắt xác thực 2 bước', 'users', $id, $u['username']); }
             $admins = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE active = 1 AND role = 'admin'")->fetchColumn();
             if (metaGet($pdo, 'legacy_off') === '1' && $admins < 1) {   // tránh tự khóa mình ra ngoài
-                $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ?, unit = ? WHERE id = ?')->execute([$u['name'], $u['role'], $u['active'], $u['unit'], $id]);
+                $pdo->prepare('UPDATE users SET name = ?, role = ?, active = ?, unit = ?, grp = ? WHERE id = ?')->execute([$u['name'], $u['role'], $u['active'], $u['unit'], $u['grp'], $id]);
                 out(409, ['error' => 'last_admin']);
             }
-            audit($pdo, 'sửa tài khoản', 'users', $id, $u['username'] . ($pw !== '' ? ' (đặt lại mật khẩu)' : '') . ($active ? '' : ' (đã khóa)'));
+            audit($pdo, 'sửa tài khoản', 'users', $id, $u['username'] . ($abbr !== '' ? " (nhóm $abbr)" : '') . ($pw !== '' ? ' (đặt lại mật khẩu)' : '') . ($active ? '' : ' (đã khóa)'));
         }
         out(200, ['ok' => true]);
+    }
+
+    case 'groups_list': {
+        needCap($role, 'system');
+        $items = $pdo->query('SELECT g.id, g.abbr, g.code, g.name, g.caps, g.note, (SELECT COUNT(*) FROM users u WHERE u.grp = g.id AND u.active = 1) AS members FROM ugroups g ORDER BY g.created')->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($items as &$it) { $it['caps'] = array_values((array)json_decode((string)$it['caps'], true)); $it['members'] = (int)$it['members']; } unset($it);
+        $rules = codeRules($pdo);
+        out(200, ['items' => $items, 'rules' => $rules, 'capNames' => CAP_NAMES]);
+    }
+
+    case 'group_save': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'system');
+        $id = (string)($body['id'] ?? '');
+        $name = str($body, 'name', 60); $note = str($body, 'note', 200);
+        $caps = array_values(array_intersect(CAP_NAMES, array_map('strval', (array)($body['caps'] ?? []))));
+        if (array_intersect(['txn', 'approve'], $caps) && !in_array('fund', $caps, true)) $caps[] = 'fund';
+        $caps = array_values(array_intersect(CAP_NAMES, $caps));
+        if ($name === '') out(400, ['error' => 'bad_request']);
+        if ($id === '') {
+            $ab = strtoupper(str($body, 'abbr', 6));
+            if (!preg_match('/^[A-Z0-9]{2,6}$/', $ab)) out(400, ['error' => 'bad_abbr']);
+            $e = $pdo->prepare('SELECT COUNT(*) FROM ugroups WHERE abbr = ?'); $e->execute([$ab]);
+            if ((int)$e->fetchColumn() > 0) out(409, ['error' => 'abbr_taken']);
+            $gid = 'g' . bin2hex(random_bytes(5));
+            $code = codeRules($pdo)['group']['prefix'] . '-' . $ab;
+            $pdo->prepare('INSERT INTO ugroups (id, abbr, code, name, caps, note, created) VALUES (?,?,?,?,?,?,?)')->execute([$gid, $ab, $code, $name, json_encode($caps), $note, time()]);
+            audit($pdo, 'tạo nhóm', 'ugroups', $gid, "$code · $name · quyền: " . implode(',', $caps));
+        } else {
+            $g = $pdo->prepare('SELECT * FROM ugroups WHERE id = ?'); $g->execute([$id]);
+            $old = $g->fetch(PDO::FETCH_ASSOC);
+            if (!$old) out(404, ['error' => 'not_found']);
+            $pdo->prepare('UPDATE ugroups SET name = ?, caps = ?, note = ? WHERE id = ?')->execute([$name, json_encode($caps), $note, $id]);
+            audit($pdo, 'sửa nhóm', 'ugroups', $id, $old['code'] . ' · ' . $name . ' · quyền: ' . implode(',', $caps) . ' (trước: ' . implode(',', (array)json_decode((string)$old['caps'], true)) . ')');
+        }
+        out(200, ['ok' => true]);
+    }
+
+    case 'group_del': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'system');
+        $id = (string)($body['id'] ?? '');
+        $g = $pdo->prepare('SELECT * FROM ugroups WHERE id = ?'); $g->execute([$id]);
+        $old = $g->fetch(PDO::FETCH_ASSOC);
+        if (!$old) out(404, ['error' => 'not_found']);
+        $m = $pdo->prepare('SELECT COUNT(*) FROM users WHERE grp = ?'); $m->execute([$id]);
+        if ((int)$m->fetchColumn() > 0) out(409, ['error' => 'group_in_use']);
+        $pdo->prepare('DELETE FROM ugroups WHERE id = ?')->execute([$id]);
+        audit($pdo, 'xóa nhóm', 'ugroups', $id, $old['code'] . ' · ' . $old['name']);
+        out(200, ['ok' => true]);
+    }
+
+    case 'rules_save': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'system');
+        $in = (array)($body['rules'] ?? []); $out = [];
+        foreach (codeRulesDefault() as $k => $d) {
+            $r = (array)($in[$k] ?? []);
+            $pf = strtoupper(trim((string)($r['prefix'] ?? $d['prefix'])));
+            if ($k !== 'userStaff' && !preg_match('/^[A-Z0-9]{1,6}$/', $pf)) out(400, ['error' => 'bad_prefix']);
+            $w = (int)($r['width'] ?? $d['width']);
+            if ($d['width'] > 0 && ($w < 2 || $w > 8)) out(400, ['error' => 'bad_prefix']);
+            $out[$k] = ['prefix' => $k === 'userStaff' ? '' : $pf, 'year' => $k === 'group' ? false : !empty($r['year']), 'width' => $d['width'] > 0 ? $w : 0];
+        }
+        metaSet($pdo, 'code_rules', json_encode($out));
+        audit($pdo, 'sửa quy tắc mã', '', '', 'Quy tắc mã mới áp dụng cho hồ sơ tạo từ nay; mã đã cấp giữ nguyên.');
+        out(200, ['ok' => true]);
+    }
+
+    case 'codes_backfill': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'system');
+        $n = backfillCodes($pdo);
+        audit($pdo, 'đánh mã bù', '', '', "$n hồ sơ");
+        out(200, ['ok' => true, 'count' => $n]);
     }
 
     case 'legacy_off': {
@@ -1116,6 +1363,7 @@ switch ($a) {
         $p = $r ? $dir . '/files/' . $r['id'] : '';
         if (!$r || !is_file($p)) out(404, ['error' => 'not_found']);
         if ($r['ref_col'] === 'vendors') needCap($role, 'seeall');
+        if ($r['ref_col'] === 'txns') needCap($role, 'fund');
         header('Content-Type: ' . $r['mime']);
         header("Content-Disposition: inline; filename*=UTF-8''" . rawurlencode($r['name']));
         header("Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");

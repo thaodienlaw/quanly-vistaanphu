@@ -68,7 +68,17 @@ MIT, xem [LICENSE](LICENSE).
 | Trưởng ban (admin) | Toàn quyền, tài khoản, cài đặt, sao lưu |
 | Kế toán, Ban quản lý (vai trò cũ) | Giữ nguyên quyền như trước khi tách vai trò |
 
-Người ghi khoản chi lớn không tự duyệt được khoản đó. Quyền được kiểm tra ở máy chủ (`$CAPS` trong api.php), giao diện chỉ ẩn nút cho gọn.
+Người ghi khoản chi lớn không tự duyệt được khoản đó.
+
+## Nhóm, tài khoản và quy tắc mã
+
+Trong tab **Quản trị** (chỉ Trưởng ban thấy):
+
+- **Nhóm và phân quyền**: tạo nhóm (Quản lý chung, Kỹ thuật, Kế toán, Ban quản trị, Kiểm soát có sẵn) và tick quyền cho từng nhóm. Mỗi nhân viên thuộc một nhóm; đổi quyền nhóm có hiệu lực ngay. Nhóm không có quyền "Xem quỹ" (ví dụ Kỹ thuật) không thấy tab Thu chi, số dư quỹ, báo cáo quỹ; máy chủ cũng không gửi dữ liệu thu chi cho họ.
+- **Tài khoản người dùng**: loại Trưởng ban, Nhân viên (chọn nhóm) hoặc Cư dân (gắn số căn). Tài khoản cũ (Kế toán, Ban quản lý, Ban quản trị, Ban kiểm tra) được tự chuyển vào nhóm tương ứng lần đầu sau khi cập nhật.
+- **Quy tắc mã**: mã tự cấp, không sửa tay. Mặc định: nhóm `NH-KT`, người dùng `KT-001` (mã nhóm + số), tài sản `TS-0001`, bảo trì `BT-2026-0001`, phiếu thu `PT-2026-0001`, phiếu chi `PC-2026-0001`, nhà thầu `NT-001`. Trưởng ban đổi tiền tố, có năm hay không, số chữ số; áp dụng cho hồ sơ tạo sau đó. Nút "Đánh mã bù" cấp mã cho hồ sơ cũ còn thiếu (lần đầu cập nhật hệ thống tự làm).
+
+Quyền "Hiện menu Căn hộ, Gửi xe, Biểu quyết, Tiện ích" chỉ ẩn hiện menu; việc được làm trong các mục đó vẫn theo quyền Nhập liệu, Biểu quyết, Tiện ích. Quyền được kiểm tra ở máy chủ (`$CAPS` trong api.php), giao diện chỉ ẩn nút cho gọn.
 
 ## Bảo mật tài khoản và sao lưu
 

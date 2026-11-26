@@ -194,7 +194,10 @@ const NORGS=["Ban quản lý","Ban quản trị"];
 const orgOf=n=>n.org==="Đơn vị quản lý vận hành"?"Ban quản lý":(n.org||"");
 const isPlan=n=>String(n.type).startsWith("Kế hoạch"),isRep=n=>String(n.type).startsWith("Báo cáo");
 const NSTAT=["Dự kiến","Đang thực hiện","Hoàn thành"];
-const ROLES={admin:"Trưởng ban (toàn quyền)",board:"Ban quản trị (duyệt chi, biểu quyết)",manager:"Ban quản lý (vận hành)",accountant:"Kế toán (ghi thu chi)",auditor:"Ban kiểm tra (chỉ xem)",editor:"Kế toán, Ban quản lý (nhập liệu, vai trò cũ)",viewer:"Cư dân (chỉ xem)"};
+const ROLES={admin:"Trưởng ban (toàn quyền)",board:"Ban quản trị (duyệt chi, biểu quyết)",manager:"Ban quản lý (vận hành)",accountant:"Kế toán (ghi thu chi)",auditor:"Ban kiểm tra (chỉ xem)",editor:"Kế toán, Ban quản lý (nhập liệu, vai trò cũ)",staff:"Nhân viên (theo nhóm)",viewer:"Cư dân (chỉ xem)"};
+const roleLabel=u=>u.role==="staff"?(u.gname||"Nhân viên, chưa có nhóm"):(ROLES[u.role]||u.role);
+const CAPS_SHORT={fund:"Xem quỹ",txn:"Ghi thu chi",approve:"Duyệt chi lớn",manage:"Nhập liệu vận hành",seeall:"Xem hồ sơ nội bộ",facility:"Tiện ích",govern:"Biểu quyết, căn hộ",audit:"Xem nhật ký",resident:"Menu cư dân"};
+const CAPL={fund:"Xem thu chi, số dư quỹ và báo cáo quỹ",txn:"Ghi, sửa, hủy thu chi và chứng từ thu chi",approve:"Duyệt khoản chi lớn",manage:"Nhập tài sản, bảo trì, nhà thầu, thông báo, báo cáo hoạt động; duyệt gửi xe",seeall:"Xem hồ sơ nội bộ: căn hộ, xe, hợp đồng nhà thầu",facility:"Quản lý tiện ích và lịch đặt",govern:"Tạo biểu quyết, quản lý danh sách căn hộ",audit:"Xem nhật ký thay đổi",resident:"Hiện các menu Căn hộ, Gửi xe, Biểu quyết, Tiện ích"};
 const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","nha-thau","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","nhat-ky","quan-tri"];
 const VTYPES=["Xe máy","Ô tô","Xe điện","Xe đạp"];
 const VSTAT=["Chờ duyệt","Đã duyệt","Từ chối","Ngừng"];
@@ -218,7 +221,7 @@ function opt(list,sel,all){return (all?`<option value="">${all}</option>`:"")+li
 
 /* ---------- dữ liệu và kết nối ---------- */
 let state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};
-let loadErr=false; let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={}, facs=null, books=null;
+let loadErr=false; let grps=null, rules=null; let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={}, facs=null, books=null;
 let filt={
   notice:{type:"",org:""},
   unit:{q:""},
@@ -230,8 +233,8 @@ let filt={
   rep:{period:"quarter",year:String(new Date().getFullYear()),quarter:String(Math.floor(new Date().getMonth()/3)+1),month:today().slice(0,7),fund:"",view:"fin"},
   audit:{q:""}
 };
-const CAPS={seeall:["editor","admin","accountant","manager","board","auditor"],manage:["editor","admin","manager","board"],txn:["editor","admin","accountant","manager"],approve:["admin","board"],govern:["admin","board"],facility:["admin","board","manager"],audit:["admin","board","auditor"],system:["admin"]};
-const can=c=>!!me&&(CAPS[c]||[]).includes(me.role);
+const CAPS={resident:["viewer","editor","admin","accountant","manager","board","auditor"],fund:["viewer","editor","admin","accountant","manager","board","auditor"],seeall:["editor","admin","accountant","manager","board","auditor"],manage:["editor","admin","manager","board"],txn:["editor","admin","accountant","manager"],approve:["admin","board"],govern:["admin","board"],facility:["admin","board","manager"],audit:["admin","board","auditor"],system:["admin"]};
+const can=c=>!!me&&(Array.isArray(me.caps)?me.caps.includes(c):(CAPS[c]||[]).includes(me.role));
 const isEd=()=>can("seeall");
 const isAdm=()=>can("system");
 
@@ -264,6 +267,7 @@ const ERR={
   no_unit:"Tài khoản của bạn chưa gắn với căn hộ. Hãy nhờ Ban quản trị gắn căn hộ.",
   bad_unit:"Căn hộ này chưa có trong danh sách căn hộ.",
   poll_closed:"Biểu quyết này đã đóng.",
+  bad_group:"Hãy chọn nhóm cho nhân viên.",bad_abbr:"Mã viết tắt gồm 2 đến 6 chữ cái hoặc số.",abbr_taken:"Mã viết tắt này đã có nhóm khác dùng.",group_in_use:"Nhóm còn người dùng, hãy chuyển họ sang nhóm khác trước.",bad_prefix:"Tiền tố gồm 1 đến 6 chữ cái hoặc số, số chữ số từ 2 đến 8.",self_lock:"Bạn không thể tự hạ quyền hoặc khóa tài khoản đang đăng nhập.",
   slot_taken:"Khung giờ này đã có người đặt. Hãy chọn giờ khác.",
   out_of_hours:"Giờ đặt nằm ngoài giờ mở cửa của tiện ích.",
   bad_date:"Chỉ đặt được từ hôm nay đến 60 ngày tới."
@@ -296,8 +300,8 @@ async function loadAll(){
 async function loadFb(){try{fb=(await api("feedback_list")).items;render()}catch(e){fb=[];fail(e)}}
 let bks=[];
 async function loadAdmin(){
-  try{if(isAdm()){const [u,a,b]=await Promise.all([api("users_list"),api("audit_list"),api("backup_list")]);users=u.items;audit=a.items;bks=b.items}else{users=[];audit=(await api("audit_list")).items}}
-  catch(e){users=users||[];audit=audit||[];fail(e)}
+  try{if(isAdm()){const [u,a,b,g]=await Promise.all([api("users_list"),api("audit_list"),api("backup_list"),api("groups_list")]);users=u.items;audit=a.items;bks=b.items;grps=g.items;rules=g.rules}else{users=[];audit=(await api("audit_list")).items}}
+  catch(e){users=users||[];audit=audit||[];grps=grps||[];rules=rules||{};fail(e)}
   render();
 }
 async function refresh(){
@@ -356,6 +360,8 @@ function curTab(){
   const h=location.hash.slice(1);
   if(!TABS.includes(h))return "tong-quan";
   if(h==="gop-y"&&!can("manage"))return "tong-quan";
+  if(h==="thu-chi"&&!can("fund"))return "tong-quan";
+  if((h==="can-ho"||h==="bieu-quyet"||h==="tien-ich")&&!can("resident"))return "tong-quan";
   if(h==="nhat-ky"&&!(can("audit")&&!isAdm()))return "tong-quan";
   if(h==="quan-tri"&&!isAdm())return "tong-quan";
   if(h==="can-ho"&&!isEd())return "tong-quan";
@@ -376,10 +382,11 @@ function render(){
   document.body.classList.toggle("ro",!(can("manage")||can("txn")));
   document.body.classList.toggle("noadm",!adm);
   Object.keys(CAPS).forEach(c=>document.body.classList.toggle("no-"+c,!can(c)));
-  $("#tabGopY").hidden=!can("manage");$("#tabAdm").hidden=!adm;$("#tabAudit").hidden=!(can("audit")&&!adm);$("#tabUnits").hidden=!ed;$("#tabVeh").hidden=!(ed||(me&&me.unit));$("#btnLogout").hidden=!me;$("#btnTotp").hidden=!(me&&me.uid);
+  $("#tabGopY").hidden=!can("manage");$("#tabAdm").hidden=!adm;$("#tabAudit").hidden=!(can("audit")&&!adm);$("#tabUnits").hidden=!(ed&&can("resident"));$("#tabVeh").hidden=!((ed&&can("resident"))||(me&&me.unit));document.querySelector('[data-tab="bieu-quyet"]').hidden=!can("resident");document.querySelector('[data-tab="tien-ich"]').hidden=!can("resident");$("#btnLogout").hidden=!me;$("#btnTotp").hidden=!(me&&me.uid);
   document.querySelector("nav.tabs").hidden=!me;
+  document.querySelector('[data-tab="thu-chi"]').hidden=!can("fund");
   const who=$("#who");
-  who.textContent=me?((me.name||(me.role==="viewer"?"Cư dân":"Ban quản trị, mật khẩu chung"))+(me.unit?" · căn "+me.unit:"")+" · "+(ROLES[me.role]||"")):"";
+  who.textContent=me?((me.name||(me.role==="viewer"?"Cư dân":"Ban quản trị, mật khẩu chung"))+(me.unit?" · căn "+me.unit:"")+" · "+(me.role==="staff"?(me.group||"Nhân viên"):(ROLES[me.role]||""))+(me.code&&me.role!=="viewer"?" · "+me.code:"")):"";
   const tab=curTab();
   document.querySelectorAll("nav.tabs button").forEach(b=>b.setAttribute("aria-current",b.dataset.tab===tab?"page":"false"));
   $("#orgName").textContent=state.settings.name||"The Vista An Phú";
@@ -429,14 +436,15 @@ function vOverview(){
   const alerts=dueAll().filter(x=>x.key==="over"||x.key==="soon").slice(0,6);
   const notes=[...state.notices].sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id)).slice(0,3);
   const recent=[...state.txns].filter(t=>!t.voided).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id)).slice(0,6);
-  return notices()+`<div class="grid2">${fundCard("maint")}${fundCard("ops")}</div>
+  const F$=can("fund");
+  return notices()+(F$?`<div class="grid2">${fundCard("maint")}${fundCard("ops")}</div>`:"")+`
   ${notes.length?`<section class="card"><div class="head-row"><h2>Thông báo, kế hoạch, báo cáo mới</h2><button class="btn small" data-tab="thong-bao">Xem tất cả</button></div><div class="list">${notes.map(n=>`<div class="item"><div class="t"><strong>${esc(n.title)}</strong><span>${esc(n.type)}${orgOf(n)?" · "+esc(orgOf(n)):""} · ${vdate(n.date)}</span></div>${n.status?`<span class="pill mute">${esc(n.status)}</span>`:""}</div>`).join("")}</div></section>`:""}
   <div class="grid2">
     <section class="card"><div class="head-row"><h2>Cần xử lý</h2><button class="btn small" data-tab="bao-tri">Xem lịch</button></div>${dueItems(alerts,"Không có mốc nào quá hạn hoặc sắp đến hạn trong 30 ngày.")}</section>
-    <section class="card"><div class="head-row"><h2>Thu chi 6 tháng</h2><div class="legend"><span><i style="background:var(--in)"></i>Thu</span><span><i style="background:var(--out)"></i>Chi</span></div></div>${chart}</section>
+    ${F$?`<section class="card"><div class="head-row"><h2>Thu chi 6 tháng</h2><div class="legend"><span><i style="background:var(--in)"></i>Thu</span><span><i style="background:var(--out)"></i>Chi</span></div></div>${chart}</section>`:""}
   </div>
-  <section class="card"><div class="head-row"><h2>Giao dịch gần đây</h2><div class="actions"><button class="btn small primary" data-act="add-in">+ Khoản thu</button><button class="btn small out" data-act="add-out">+ Khoản chi</button></div></div>
-  ${recent.length?'<div class="list">'+recent.map(t=>`<div class="item"><div class="t"><strong>${esc(t.category)}</strong><span>${vdate(t.date)} · ${FUNDS[t.fund]||""}${t.party?" · "+esc(t.party):""}</span></div><div class="actions">${t.status==="pending"?'<span class="pill warn">Chờ duyệt</span>':""}<b class="num ${t.type==="in"?"in":"outc"}">${t.type==="in"?"+":"−"}${money(t.amount)}</b></div></div>`).join("")+"</div>":'<div class="empty">Chưa có giao dịch.</div>'}</section>`;
+  ${F$?`<section class="card"><div class="head-row"><h2>Giao dịch gần đây</h2><div class="actions"><button class="btn small primary" data-act="add-in">+ Khoản thu</button><button class="btn small out" data-act="add-out">+ Khoản chi</button></div></div>
+  ${recent.length?'<div class="list">'+recent.map(t=>`<div class="item"><div class="t"><strong>${esc(t.category)}</strong><span>${vdate(t.date)} · ${FUNDS[t.fund]||""}${t.party?" · "+esc(t.party):""}</span></div><div class="actions">${t.status==="pending"?'<span class="pill warn">Chờ duyệt</span>':""}<b class="num ${t.type==="in"?"in":"outc"}">${t.type==="in"?"+":"−"}${money(t.amount)}</b></div></div>`).join("")+"</div>":'<div class="empty">Chưa có giao dịch.</div>'}</section>`:""}`;
 }
 
 /* ---------- thu chi ---------- */
@@ -444,7 +452,7 @@ function txnFiltered(){
   const f=filt.txn,q=f.q.trim().toLowerCase();
   return state.txns.filter(t=>(!f.fund||t.fund===f.fund)&&(!f.type||t.type===f.type)&&(!f.month||(t.date||"").slice(0,7)===f.month)
     &&(!f.status||(f.status==="live"?live(t):f.status==="pending"?(t.status==="pending"&&!t.voided):!!t.voided))
-    &&(!q||[t.category,t.party,t.note].join(" ").toLowerCase().includes(q))).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
+    &&(!q||[t.code,t.category,t.party,t.note].join(" ").toLowerCase().includes(q))).sort((a,b)=>(b.date+b.id).localeCompare(a.date+a.id));
 }
 function vTxns(){
   const f=filt.txn,rows=txnFiltered(),lv=rows.filter(live);
@@ -460,11 +468,11 @@ function vTxns(){
     <label>Tìm kiếm<input id="f-q" type="search" data-f="txn.q" data-live="1" value="${esc(f.q)}" placeholder="Nội dung, đối tượng"></label>
   </div>
   <div class="summary num"><span>${rows.length} giao dịch</span><span>Tổng thu: <b class="in">${money(tin)}</b></span><span>Tổng chi: <b class="outc">${money(tout)}</b></span><span>Chênh lệch: <b>${tin-tout<0?"−":""}${money(Math.abs(tin-tout))}</b></span></div>
-  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Ngày</th><th>Quỹ</th><th>Nội dung</th><th>Tài sản</th><th class="r">Số tiền</th><th></th></tr></thead><tbody>${rows.map(t=>{
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Mã</th><th>Ngày</th><th>Quỹ</th><th>Nội dung</th><th>Tài sản</th><th class="r">Số tiền</th><th></th></tr></thead><tbody>${rows.map(t=>{
     const a=assetById(t.assetId),n=fileCount("txns",t.id);
     const pill=t.voided?'<span class="pill mute">Đã hủy</span>':t.status==="pending"?'<span class="pill warn">Chờ duyệt</span>':"";
     const trail=[t.byName?"Nhập: "+esc(t.byName):"",t.approvedByName?"Duyệt: "+esc(t.approvedByName):"",t.voided?"Hủy: "+esc(t.voidedByName||"")+" · "+esc(t.voidReason||""):""].filter(Boolean).join(" · ");
-    return `<tr${t.voided?' class="voided"':""}><td class="num">${vdate(t.date)}</td><td>${FUNDS[t.fund]||""}</td><td><strong>${esc(t.category)}</strong> ${pill}${t.party?`<span class="meta">${esc(t.party)}</span>`:""}${t.note?`<span class="meta">${esc(t.note)}</span>`:""}${trail?`<span class="meta">${trail}</span>`:""}</td><td>${a?esc(a.name):""}</td><td class="r num"><b class="amt ${t.type==="in"?"in":"outc"}">${t.type==="in"?"+":"−"}${money(t.amount)}</b></td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="files" data-col="txns" data-id="${esc(t.id)}">Chứng từ${n?" ("+n+")":""}</button>${t.status==="pending"&&!t.voided?`<button class="btn small primary" data-act="approve" data-id="${esc(t.id)}">Duyệt</button>`:""}${t.voided?"":`<button class="btn small" data-act="edit-txn" data-id="${esc(t.id)}">Sửa</button><button class="btn small danger" data-act="void-txn" data-id="${esc(t.id)}">Hủy khoản</button>`}</div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Không có giao dịch nào khớp bộ lọc.</div>'}`;
+    return `<tr${t.voided?' class="voided"':""}><td class="num">${esc(t.code||"")}</td><td class="num">${vdate(t.date)}</td><td>${FUNDS[t.fund]||""}</td><td><strong>${esc(t.category)}</strong> ${pill}${t.party?`<span class="meta">${esc(t.party)}</span>`:""}${t.note?`<span class="meta">${esc(t.note)}</span>`:""}${trail?`<span class="meta">${trail}</span>`:""}</td><td>${a?esc(a.name):""}</td><td class="r num"><b class="amt ${t.type==="in"?"in":"outc"}">${t.type==="in"?"+":"−"}${money(t.amount)}</b></td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="files" data-col="txns" data-id="${esc(t.id)}">Chứng từ${n?" ("+n+")":""}</button>${t.status==="pending"&&!t.voided?`<button class="btn small primary" data-act="approve" data-id="${esc(t.id)}">Duyệt</button>`:""}${t.voided?"":`<button class="btn small" data-act="edit-txn" data-id="${esc(t.id)}">Sửa</button><button class="btn small danger" data-act="void-txn" data-id="${esc(t.id)}">Hủy khoản</button>`}</div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Không có giao dịch nào khớp bộ lọc.</div>'}`;
 }
 
 /* ---------- tài sản ---------- */
@@ -491,7 +499,7 @@ function vMaint(){
   <section class="card"><h3 style="margin-bottom:6px">Lịch tới hạn</h3>${dueItems(dueAll())}</section>
   <div class="head-row"><h3>Nhật ký</h3><label class="filters" style="display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted)">Tài sản<select id="fm-asset" data-f="maint.asset">${opt(state.assets.map(a=>[a.id,(a.code?a.code+" · ":"")+a.name]),f.asset,"Tất cả")}</select></label></div>
   <div class="summary num"><span>${rows.length} lần</span><span>Tổng chi phí: <b>${money(sum(rows,m=>Number(m.cost)||0))}</b></span></div>
-  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Ngày</th><th>Tài sản</th><th>Nội dung</th><th>Đơn vị thực hiện</th><th class="r">Chi phí</th><th></th></tr></thead><tbody>${rows.map(m=>{const a=assetById(m.assetId),n=fileCount("maints",m.id),t=m.txnId?state.txns.find(x=>x.id===m.txnId):null;return `<tr><td class="num">${vdate(m.date)}</td><td>${a?esc(a.name):'<span class="meta">(đã xóa)</span>'}</td><td><span class="pill ${m.kind==="Kiểm định"?"good":m.kind==="Sửa chữa"?"warn":m.kind==="Đề xuất"?"bad":"mute"}">${esc(m.kind||"Bảo trì")}</span> <strong>${esc(m.title)}</strong>${m.note?`<span class="meta">${esc(m.note)}</span>`:""}</td><td>${esc(m.vendor||"")}</td><td class="r num">${Number(m.cost)?money(m.cost)+`<span class="meta">${t?(t.voided?"Khoản chi đã hủy":t.status==="pending"?"Chờ duyệt chi":FUNDS[m.fund]||""):"Chưa ghi vào quỹ"}</span>`:"—"}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="files" data-col="maints" data-id="${esc(m.id)}">Chứng từ${n?" ("+n+")":""}</button><button class="btn small" data-act="edit-maint" data-id="${esc(m.id)}">Sửa</button><button class="btn small danger" data-act="del-maint" data-id="${esc(m.id)}">Xóa</button></div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có lần bảo trì nào được ghi.</div>'}`;
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Mã</th><th>Ngày</th><th>Tài sản</th><th>Nội dung</th><th>Đơn vị thực hiện</th><th class="r">Chi phí</th><th></th></tr></thead><tbody>${rows.map(m=>{const a=assetById(m.assetId),n=fileCount("maints",m.id),t=m.txnId?state.txns.find(x=>x.id===m.txnId):null;return `<tr><td class="num">${esc(m.code||"")}</td><td class="num">${vdate(m.date)}</td><td>${a?esc(a.name):'<span class="meta">(đã xóa)</span>'}</td><td><span class="pill ${m.kind==="Kiểm định"?"good":m.kind==="Sửa chữa"?"warn":m.kind==="Đề xuất"?"bad":"mute"}">${esc(m.kind||"Bảo trì")}</span> <strong>${esc(m.title)}</strong>${m.note?`<span class="meta">${esc(m.note)}</span>`:""}</td><td>${esc(m.vendor||"")}</td><td class="r num">${Number(m.cost)?money(m.cost)+`<span class="meta">${t?(t.voided?"Khoản chi đã hủy":t.status==="pending"?"Chờ duyệt chi":FUNDS[m.fund]||""):"Chưa ghi vào quỹ"}</span>`:"—"}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="files" data-col="maints" data-id="${esc(m.id)}">Chứng từ${n?" ("+n+")":""}</button><button class="btn small" data-act="edit-maint" data-id="${esc(m.id)}">Sửa</button><button class="btn small danger" data-act="del-maint" data-id="${esc(m.id)}">Xóa</button></div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có lần bảo trì nào được ghi.</div>'}`;
 }
 
 /* ---------- báo cáo ---------- */
@@ -522,6 +530,7 @@ function fundReport(f,rg){
 }
 function vReport(){
   const r=filt.rep;
+  if(!can("fund"))return vActivities("");
   const sw=`<div class="filters noprint"><label>Nội dung<select id="r-view" data-f="rep.view">${opt([["fin","Báo cáo thu chi, bảo trì"],["act","Kế hoạch và báo cáo hoạt động"]],r.view)}</select></label></div>`;
   return r.view==="act"?vActivities(sw):sw+vFinReport();
 }
@@ -625,14 +634,14 @@ function contractPill(v){
 }
 function vVendors(){
   const ed=isEd(),q=(filt.vendor.q||"").trim().toLowerCase();
-  const rows=state.vendors.filter(v=>!q||[v.name,v.service,v.contractNo].join(" ").toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
+  const rows=state.vendors.filter(v=>!q||[v.code,v.name,v.service,v.contractNo].join(" ").toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name));
   const known=new Set(state.vendors.map(v=>vkey(v.name)));
   const names={};state.maints.forEach(m=>{if(m.vendor&&!known.has(vkey(m.vendor)))names[vkey(m.vendor)]=m.vendor.trim()});state.txns.forEach(t=>{if(t.type==="out"&&live(t)&&t.party&&!known.has(vkey(t.party)))names[vkey(t.party)]=t.party.trim()});
   const unk=Object.values(names).slice(0,12);
   return `<div class="head-row"><h2>Nhà thầu, đơn vị cung cấp dịch vụ</h2><button class="btn primary" data-act="vendor-new">+ Thêm nhà thầu</button></div>
   <div class="filters"><label>Tìm kiếm<input id="fv2-q" type="search" data-f="vendor.q" data-live="1" value="${esc(filt.vendor.q||"")}" placeholder="Tên, dịch vụ, số hợp đồng"></label></div>
   ${ed&&unk.length?`<div class="banner info"><span>Đã xuất hiện trong sổ nhưng chưa có hồ sơ: ${unk.map(n=>`<button class="btn small" data-act="vendor-new" data-name="${esc(n)}">${esc(n)}</button>`).join(" ")}</span></div>`:""}
-  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Nhà thầu</th><th>Dịch vụ</th><th>Hợp đồng</th><th>Đánh giá</th><th class="r">Số việc</th><th class="r">Tổng chi</th><th></th></tr></thead><tbody>${rows.map(v=>{const j=vendorJobs(v),sc=vendorScore(v);return `<tr><td><strong>${esc(v.name)}</strong></td><td>${esc(v.service||"")}</td><td>${contractPill(v)}${v.contractNo?`<span class="meta">${esc(v.contractNo)}</span>`:""}</td><td>${stars(sc.avg)}${sc.n?`<span class="meta">${sc.n} lượt</span>`:""}</td><td class="r num">${j.length}</td><td class="r num">${money(sum(j,x=>x.cost))}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="vnd-detail" data-id="${esc(v.id)}">Chi tiết</button></div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có hồ sơ nhà thầu. Bấm “Thêm nhà thầu” để lập hồ sơ, hợp đồng và đánh giá.</div>'}`;
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Nhà thầu</th><th>Dịch vụ</th><th>Hợp đồng</th><th>Đánh giá</th><th class="r">Số việc</th><th class="r">Tổng chi</th><th></th></tr></thead><tbody>${rows.map(v=>{const j=vendorJobs(v),sc=vendorScore(v);return `<tr><td><strong>${esc(v.name)}</strong>${v.code?`<span class="meta">${esc(v.code)}</span>`:""}</td><td>${esc(v.service||"")}</td><td>${contractPill(v)}${v.contractNo?`<span class="meta">${esc(v.contractNo)}</span>`:""}</td><td>${stars(sc.avg)}${sc.n?`<span class="meta">${sc.n} lượt</span>`:""}</td><td class="r num">${j.length}</td><td class="r num">${money(sum(j,x=>x.cost))}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="vnd-detail" data-id="${esc(v.id)}">Chi tiết</button></div></td></tr>`}).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có hồ sơ nhà thầu. Bấm “Thêm nhà thầu” để lập hồ sơ, hợp đồng và đánh giá.</div>'}`;
 }
 function vendorForm(v,presetName){
   const cur=v||{name:presetName||"",service:"",contact:"",phone:"",email:"",contractNo:"",contractFrom:"",contractTo:"",contractValue:"",status:"Đang hợp đồng",note:""};
@@ -892,12 +901,18 @@ function vAdmin(){
   const le=Number(state.meta.lastExport||0);
   const admins=users.filter(u=>u.active&&u.role==="admin").length;
   return `<div class="head-row"><h2>Quản trị</h2><button class="btn" data-act="settings">Cài đặt chung</button></div>
-  <section class="card"><div class="head-row"><h3>Tài khoản Ban quản trị</h3><button class="btn small primary" data-act="user-add">+ Thêm tài khoản</button></div>
-  <p class="meta" style="margin:6px 0 10px">Trưởng ban có toàn quyền. Ban quản trị duyệt chi lớn, tạo biểu quyết, xem nhật ký. Ban quản lý lo vận hành: tài sản, bảo trì, nhà thầu, báo cáo, duyệt gửi xe và tiện ích. Kế toán chỉ ghi thu chi và chứng từ. Ban kiểm tra chỉ xem, kể cả nhật ký. Người ghi khoản chi lớn không tự duyệt được khoản đó. Vai trò “Kế toán, Ban quản lý (cũ)” giữ nguyên quyền như trước. Cư dân dùng mật khẩu chung hoặc tài khoản gắn căn hộ.</p>
-  ${users.length?`<div class="tablewrap"><table><thead><tr><th>Tên</th><th>Đăng nhập</th><th>Căn hộ</th><th>Quyền</th><th>2 bước</th><th>Trạng thái</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.unit||"")}</td><td>${esc(ROLES[u.role]||u.role)}</td><td>${u.totp?'<span class="pill good">Bật</span>':'<span class="pill mute">Chưa</span>'}</td><td>${u.active?'<span class="pill good">Hoạt động</span>':'<span class="pill mute">Đã khóa</span>'}</td><td class="r"><button class="btn small" data-act="user-edit" data-id="${esc(u.id)}">Sửa</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản riêng. Hiện mọi người trong Ban quản trị dùng chung một mật khẩu.</div>'}
+  <section class="card"><div class="head-row"><h3>Nhóm và phân quyền</h3><button class="btn small primary" data-act="group-add">+ Thêm nhóm</button></div>
+  <p class="meta" style="margin:6px 0 10px">Mỗi nhân viên thuộc một nhóm, nhóm quyết định menu và việc người đó làm được. Trưởng ban luôn toàn quyền. Đổi quyền của nhóm có hiệu lực ngay với mọi người trong nhóm.</p>
+  ${(grps||[]).length?`<div class="tablewrap"><table><thead><tr><th>Mã nhóm</th><th>Tên nhóm</th><th class="r">Người</th><th>Quyền</th><th></th></tr></thead><tbody>${grps.map(g=>`<tr><td class="num" style="white-space:nowrap"><strong>${esc(g.code)}</strong></td><td>${esc(g.name)}${g.note?`<span class="meta">${esc(g.note)}</span>`:""}</td><td class="r num">${g.members}</td><td>${g.caps.map(c=>`<span class="pill ${c==="fund"||c==="txn"||c==="approve"?"warn":"mute"}" title="${esc(CAPL[c]||c)}">${esc(CAPS_SHORT[c]||c)}</span>`).join(" ")}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="group-edit" data-id="${esc(g.id)}">Sửa</button><button class="btn small danger" data-act="group-del" data-id="${esc(g.id)}">Xóa</button></div></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có nhóm nào.</div>'}</section>
+  <section class="card"><div class="head-row"><h3>Tài khoản người dùng</h3><button class="btn small primary" data-act="user-add">+ Thêm tài khoản</button></div>
+  <p class="meta" style="margin:6px 0 10px">Loại tài khoản: Trưởng ban (toàn quyền), Nhân viên (chọn nhóm) hoặc Cư dân (chỉ xem, gắn số căn). Người ghi khoản chi lớn không tự duyệt được khoản của mình. Mật khẩu do bạn đặt chỉ dùng lần đầu, người dùng phải đổi khi đăng nhập.</p>
+  ${users.length?`<div class="tablewrap"><table><thead><tr><th>Mã</th><th>Tên</th><th>Đăng nhập</th><th>Căn hộ</th><th>Nhóm, quyền</th><th>2 bước</th><th>Trạng thái</th><th></th></tr></thead><tbody>${users.map(u=>`<tr><td class="num">${esc(u.code||"")}</td><td>${esc(u.name)}</td><td>${esc(u.username)}</td><td>${esc(u.unit||"")}</td><td>${esc(roleLabel(u))}</td><td>${u.totp?'<span class="pill good">Bật</span>':'<span class="pill mute">Chưa</span>'}</td><td>${u.active?'<span class="pill good">Hoạt động</span>':'<span class="pill mute">Đã khóa</span>'}</td><td class="r"><button class="btn small" data-act="user-edit" data-id="${esc(u.id)}">Sửa</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">Chưa có tài khoản riêng. Hiện mọi người trong Ban quản trị dùng chung một mật khẩu.</div>'}
   <div class="actions" style="margin-top:12px"><button class="btn" data-act="viewer-pw">Đổi mật khẩu cư dân (chỉ xem)</button>
   <button class="btn" data-act="legacy-toggle">${state.meta.legacyOff?"Bật lại":"Tắt"} đăng nhập bằng mật khẩu chung của Ban quản trị</button></div>
   ${state.meta.legacyOff?'<p class="meta" style="margin:8px 0 0">Mật khẩu chung của Ban quản trị đang tắt: chỉ tài khoản riêng đăng nhập được.</p>':(admins<1?'<p class="meta" style="margin:8px 0 0">Tạo ít nhất một tài khoản Trưởng ban rồi mới tắt được mật khẩu chung.</p>':"")}</section>
+  <section class="card"><div class="head-row"><h3>Quy tắc mã</h3><div class="actions"><button class="btn small" data-act="codes-backfill">Đánh mã bù</button><button class="btn small primary" data-act="rules-edit">Sửa quy tắc</button></div></div>
+  <p class="meta" style="margin:6px 0 10px">Mã do hệ thống tự cấp, không sửa tay, để tìm hồ sơ nhanh và thống nhất. Đổi quy tắc chỉ áp dụng cho hồ sơ tạo từ sau đó, mã đã cấp giữ nguyên. “Đánh mã bù” cấp mã cho hồ sơ cũ còn thiếu.</p>
+  ${rules&&Object.keys(rules).length?`<div class="tablewrap"><table><thead><tr><th>Đối tượng</th><th>Mẫu mã</th><th>Ví dụ</th></tr></thead><tbody>${Object.values(rules).map(r=>`<tr><td>${esc(r.label)}</td><td class="num">${esc(ruleSample(r,false))}</td><td class="num"><strong>${esc(ruleSample(r,true))}</strong></td></tr>`).join("")}</tbody></table></div>`:""}</section>
   <section class="card"><h3>Sao lưu và khôi phục</h3>
   <p class="meta" style="margin:6px 0 10px">${le?"Lần sao lưu gần nhất: "+vtime(le)+".":"Chưa sao lưu lần nào."} Hệ thống tự sao lưu cơ sở dữ liệu mỗi ngày và giữ 14 bản gần nhất trên máy chủ. Chứng từ đính kèm chưa nằm trong bản tự động, nên vẫn tải .zip mỗi tháng và cất ở máy tính của bạn.</p>
   ${bks.length?`<div class="list" style="margin-bottom:10px">${bks.map(b=>`<div class="item"><div class="t"><strong>${vdate(b.day)}</strong><span>${Math.max(1,Math.round(b.size/1024))} KB</span></div><a class="btn small" href="api.php?a=backup_get&day=${esc(b.day)}">Tải</a></div>`).join("")}</div>`:'<p class="meta">Chưa có bản tự động nào, sẽ có ngay khi có người mở trang.</p>'}
@@ -948,9 +963,9 @@ function txnForm(type,t){
 
 function assetForm(a){
   const n=state.assets.length+1;
-  const cur=a||{code:"TS-"+String(n).padStart(3,"0"),name:"",kind:"Thiết bị",location:"",buyDate:"",value:"",status:"Tốt",cycle:6,inspectCycle:0,warrantyEnd:"",origin:"",plan:"",note:""};
+  const cur=a||{code:"",name:"",kind:"Thiết bị",location:"",buyDate:"",value:"",status:"Tốt",cycle:6,inspectCycle:0,warrantyEnd:"",origin:"",plan:"",note:""};
   openModal(a?"Sửa tài sản":"Thêm tài sản",`<div class="fields">
-    ${F("a-code","Mã",`<input id="a-code" name="code" value="${esc(cur.code)}">`)}
+    ${F("a-code","Mã tài sản",`<input id="a-code" name="code" value="${a&&a.code?esc(a.code):""}" placeholder="Tự cấp khi lưu" readonly>`)}
     ${F("a-kind","Loại",`<select id="a-kind" name="kind">${opt(KINDS,cur.kind)}</select>`)}
     ${F("a-name","Tên tài sản",`<input id="a-name" name="name" required value="${esc(cur.name)}">`,"full")}
     ${F("a-loc","Vị trí, biển số",`<input id="a-loc" name="location" value="${esc(cur.location||"")}">`,"full")}
@@ -981,20 +996,22 @@ function maintForm(m,assetId,kind){
     ${F("m-title","Nội dung",`<input id="m-title" name="title" required value="${esc(cur.title)}">`,"full")}
     ${F("m-vendor","Đơn vị thực hiện",`<input id="m-vendor" name="vendor" value="${esc(cur.vendor||"")}">`,"full")}
     ${F("m-cost","Chi phí (₫)",`<input id="m-cost" name="cost" type="number" min="0" step="1" value="${esc(cur.cost||"")}">`)}
-    ${F("m-fund","Chi từ quỹ",`<select id="m-fund" name="fund">${opt(Object.entries(FUNDS),cur.fund||"maint")}</select>`)}
-    <label class="check full" for="m-tx"><input id="m-tx" name="makeTxn" type="checkbox"${linked?" checked":""}> Tự ghi khoản chi này vào quỹ</label>
+    ${can("txn")?F("m-fund","Chi từ quỹ",`<select id="m-fund" name="fund">${opt(Object.entries(FUNDS),cur.fund||"maint")}</select>`)+`<label class="check full" for="m-tx"><input id="m-tx" name="makeTxn" type="checkbox"${linked?" checked":""}> Tự ghi khoản chi này vào quỹ</label>`:'<p class="meta full" style="margin:0">Khoản chi vào quỹ do bộ phận kế toán ghi.</p>'}
     ${F("m-note","Ghi chú",`<textarea id="m-note" name="note">${esc(cur.note||"")}</textarea>`,"full")}
   </div>`,async fd=>{
     const id=m?m.id:"m"+uid();
     const cost=num(fd.get("cost"));
-    const make=!!fd.get("makeTxn")&&cost>0;
+    const tx$=can("txn");
+    const make=tx$&&!!fd.get("makeTxn")&&cost>0;
     const oldTx=m&&m.txnId?state.txns.find(t=>t.id===m.txnId):null;
-    const txnId=make?"mt_"+id:"";
-    const data={date:fd.get("date"),assetId:fd.get("assetId"),kind:fd.get("kind"),title:fd.get("title").trim(),vendor:fd.get("vendor").trim(),cost,fund:fd.get("fund"),note:fd.get("note").trim(),txnId};
+    const txnId=tx$?(make?"mt_"+id:""):(m&&m.txnId||"");
+    const data={date:fd.get("date"),assetId:fd.get("assetId"),kind:fd.get("kind"),title:fd.get("title").trim(),vendor:fd.get("vendor").trim(),cost,fund:tx$?fd.get("fund"):(m&&m.fund||"maint"),note:fd.get("note").trim(),txnId};
     if(m&&m.sample)data.sample=true;
     if(!await put("maints",id,data))return false;
     const a=assetById(data.assetId);
-    if(make){
+    if(!tx$){
+      /* không có quyền ghi thu chi: giữ nguyên liên kết quỹ cũ */
+    }else if(make){
       if(!(oldTx&&oldTx.voided))await put("txns",txnId,{date:data.date,fund:data.fund,type:"out",amount:cost,category:"Bảo trì, sửa chữa",party:data.vendor,note:data.kind+": "+data.title+(a?" · "+a.name:""),assetId:data.assetId,maintId:id,...(data.sample?{sample:true}:{})});
     }else if(oldTx&&!oldTx.voided){
       await voidTxn(oldTx.id,"Bỏ ghi chi phí khi sửa lần bảo trì");
@@ -1066,22 +1083,55 @@ function viewerPwForm(){
     try{await api("passwd",{role:"viewer",password:fd.get("password")});toast("Đã đổi mật khẩu cư dân.")}catch(e){fail(e);return false}
   },"Đổi mật khẩu");
 }
+const ruleSample=(r,ex)=>{
+  const pf=r.prefix||"MÃ NHÓM",y=r.year?(ex?String(new Date().getFullYear()):"NĂM"):"",n=r.width?(ex?"1".padStart(r.width,"0"):"#".repeat(r.width)):"";
+  if(!r.width)return ex?pf+"-KT":pf+"-VIẾT TẮT";
+  return [r.prefix?(ex&&!r.prefix?"KT":pf):(ex?"KT":pf),y,n].filter(Boolean).join("-");
+};
+function groupForm(g){
+  const has=c=>g?g.caps.includes(c):c==="seeall";
+  openModal(g?"Sửa nhóm "+g.code:"Thêm nhóm",`<div class="fields">
+    ${F("g-name","Tên nhóm",`<input id="g-name" name="name" required maxlength="60" value="${esc(g?g.name:"")}">`,"full")}
+    ${g?"":F("g-ab","Mã viết tắt (2 đến 6 chữ in hoa hoặc số, không đổi được sau này)",`<input id="g-ab" name="abbr" required pattern="[A-Za-z0-9]{2,6}" maxlength="6" autocapitalize="characters" placeholder="vd: KT">`,"full")}
+    ${F("g-note","Ghi chú",`<input id="g-note" name="note" maxlength="200" value="${esc(g&&g.note||"")}">`,"full")}
+    <div class="full"><div class="meta" style="margin-bottom:6px">Nhóm được phép:</div>${Object.keys(CAPL).map(c=>`<label class="check" for="g-c-${c}" style="display:flex;margin:4px 0"><input id="g-c-${c}" type="checkbox" name="cap" value="${c}"${has(c)?" checked":""}> ${esc(CAPL[c])}</label>`).join("")}</div>
+  </div><p style="margin:0;font-size:13px;color:var(--muted)">Ghi thu chi và Duyệt chi tự bao gồm quyền xem quỹ. Nhóm không có quyền xem quỹ sẽ không thấy tab Thu chi, số dư quỹ và báo cáo quỹ.</p>`,async fd=>{
+    try{await api("group_save",{id:g?g.id:"",name:fd.get("name"),abbr:g?"":fd.get("abbr"),note:fd.get("note"),caps:fd.getAll("cap")});grps=null;users=null;render();toast("Đã lưu nhóm.")}catch(e){fail(e);return false}
+  });
+}
+function rulesForm(){
+  const keys=Object.keys(rules||{});
+  openModal("Sửa quy tắc mã",`<div class="fields">${keys.map(k=>{const r=rules[k];
+    return `<div class="full" style="border-top:1px solid var(--line);padding-top:8px"><strong style="font-size:13.5px">${esc(r.label)}</strong><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center">
+      ${k==="userStaff"?'<span class="meta">Tiền tố là mã nhóm</span>':`<input name="p_${k}" value="${esc(r.prefix)}" maxlength="6" pattern="[A-Za-z0-9]{1,6}" style="width:90px" aria-label="Tiền tố ${esc(r.label)}" autocapitalize="characters">`}
+      ${k==="group"?"":`<label class="check" style="display:flex;gap:4px"><input type="checkbox" name="y_${k}"${r.year?" checked":""}> Có năm</label>`}
+      ${r.width?`<label style="display:flex;gap:4px;align-items:center" class="meta">Số chữ số <input name="w_${k}" type="number" min="2" max="8" value="${r.width}" style="width:64px"></label>`:""}</div></div>`}).join("")}
+  </div><p style="margin:0;font-size:13px;color:var(--muted)">Chỉ áp dụng cho hồ sơ tạo sau khi lưu. Mã đã cấp giữ nguyên.</p>`,async fd=>{
+    const out={};keys.forEach(k=>{const r=rules[k];out[k]={prefix:k==="userStaff"?"":String(fd.get("p_"+k)||"").toUpperCase(),year:!!fd.get("y_"+k),width:r.width?Number(fd.get("w_"+k)||r.width):0}});
+    try{await api("rules_save",{rules:out});grps=null;users=null;render();toast("Đã lưu quy tắc mã.")}catch(e){fail(e);return false}
+  });
+}
 function userForm(u){
-  openModal(u?"Sửa tài khoản":"Thêm tài khoản",`<div class="fields">
+  const typ=u?(u.role==="board"||u.role==="manager"||u.role==="accountant"||u.role==="auditor"?"staff":u.role):"staff";
+  const types=[["staff","Nhân viên (theo nhóm)"],["admin","Trưởng ban (toàn quyền)"],["viewer","Cư dân (chỉ xem)"]].concat(typ==="editor"?[["editor","Vai trò cũ: Kế toán, Ban quản lý"]]:[]);
+  openModal(u?"Sửa tài khoản"+(u.code?" "+u.code:""):"Thêm tài khoản",`<div class="fields">
     ${F("u-name","Họ tên (cư dân: ghi kèm số căn, vd Nguyễn A, T3-301)",`<input id="u-name" name="name" required maxlength="80" value="${esc(u?u.name:"")}">`,"full")}
     ${F("u-un","Tên đăng nhập (chữ thường, số, . _ -)",`<input id="u-un" name="username" required pattern="[a-z0-9._\\-]{3,30}" ${u?"readonly":""} value="${esc(u?u.username:"")}" autocapitalize="none">`)}
-    ${F("u-role","Quyền",`<select id="u-role" name="role">${opt(["viewer","accountant","manager","board","auditor","admin","editor"].map(r=>[r,ROLES[r]]),u?u.role:"manager")}</select>`)}
+    ${F("u-role","Loại tài khoản",`<select id="u-role" name="role">${opt(types,typ)}</select>`)}
+    <label id="u-gw" for="u-grp" class="full">Nhóm${"" }<select id="u-grp" name="grp">${opt((grps||[]).map(g=>[g.id,g.code+" · "+g.name]),u&&u.grp||"")}</select></label>
     ${F("u-unit","Căn hộ (tài khoản cư dân: để biểu quyết, đăng ký xe)",`<input id="u-unit" name="unit" maxlength="20" value="${esc(u?u.unit||"":"")}" placeholder="vd: T3-301" autocapitalize="characters">`,"full")}
     ${F("u-pw",u?"Đặt lại mật khẩu (bỏ trống nếu giữ)":"Mật khẩu (từ 8 ký tự)",`<input id="u-pw" name="password" type="text" ${u?"":"required"} minlength="8" maxlength="100" autocomplete="off">`,"full")}
     ${u&&u.totp?'<label class="check full" for="u-r2"><input id="u-r2" name="reset2fa" type="checkbox"> Tắt xác thực 2 bước của tài khoản này (khi họ mất điện thoại)</label>':""}
     ${u?'<label class="check full" for="u-act"><input id="u-act" name="active" type="checkbox"'+(u.active?" checked":"")+"> Cho phép đăng nhập</label>":""}
-  </div>`,async fd=>{
+  </div>${u&&u.code?'<p style="margin:0;font-size:13px;color:var(--muted)">Mã người dùng giữ nguyên khi đổi nhóm.</p>':""}`,async fd=>{
     try{
-      await api("user_save",{id:u?u.id:"",name:fd.get("name"),username:fd.get("username"),role:fd.get("role"),unit:fd.get("unit"),password:fd.get("password"),active:u?!!fd.get("active"):true,reset2fa:!!fd.get("reset2fa")});
+      await api("user_save",{id:u?u.id:"",name:fd.get("name"),username:fd.get("username"),role:fd.get("role"),grp:fd.get("role")==="staff"?fd.get("grp"):"",unit:fd.get("unit"),password:fd.get("password"),active:u?!!fd.get("active"):true,reset2fa:!!fd.get("reset2fa")});
       if(!u&&me)me.hasUsers=true;
-      users=null;audit=null;render();toast(u?"Đã lưu tài khoản.":"Đã tạo tài khoản.");
+      users=null;grps=null;audit=null;render();toast(u?"Đã lưu tài khoản.":"Đã tạo tài khoản.");
     }catch(e){fail(e);return false}
   });
+  const sync=()=>{$("#u-gw").hidden=$("#u-role").value!=="staff";$("#u-grp").required=$("#u-role").value==="staff"};
+  $("#u-role").addEventListener("change",sync);sync();
 }
 function restoreForm(){
   openModal("Khôi phục từ bản sao lưu",`<div class="fields">
@@ -1278,6 +1328,7 @@ document.addEventListener("click",async e=>{
   else if(act==="edit-maint")maintForm(state.maints.find(m=>m.id===id));
   else if(act==="del-maint"){
     const m=state.maints.find(x=>x.id===id);const t=m.txnId?state.txns.find(x=>x.id===m.txnId):null;
+    if(m.txnId&&!can("txn"))return toast("Lần bảo trì này đã ghi chi phí vào quỹ. Nhờ bộ phận kế toán hủy khoản chi trước.");
     confirmBox("Xóa lần bảo trì?",`Xóa “${esc(m.title)}” ngày ${vdate(m.date)}?${t&&!t.voided?" Khoản chi tương ứng trong quỹ sẽ được hủy (vẫn lưu trong sổ).":""}`,"Xóa",async()=>{if(t&&!t.voided)await voidTxn(t.id,"Xóa lần bảo trì: "+m.title);await del("maints",id)});
   }
   else if(act==="settings")settingsForm();
@@ -1285,6 +1336,11 @@ document.addEventListener("click",async e=>{
   else if(act==="passwd")passwdForm();
   else if(act==="totp")totpForm();
   else if(act==="viewer-pw")viewerPwForm();
+  else if(act==="group-add")groupForm();
+  else if(act==="group-edit")groupForm(grps.find(g=>g.id===id));
+  else if(act==="group-del"){const g=grps.find(x=>x.id===id);confirmBox("Xóa nhóm?",`Xóa nhóm “${esc(g.name)}” (${esc(g.code)})? Chỉ xóa được khi không còn ai trong nhóm.`,"Xóa",async()=>{try{await api("group_del",{id});grps=null;render()}catch(e){fail(e)}})}
+  else if(act==="rules-edit")rulesForm();
+  else if(act==="codes-backfill"){try{const j=await api("codes_backfill",{});toast(j.count?"Đã đánh mã cho "+j.count+" hồ sơ.":"Mọi hồ sơ đều đã có mã.");await loadAll();render()}catch(e){fail(e)}}
   else if(act==="user-add")userForm();
   else if(act==="user-edit")userForm(users.find(u=>u.id===id));
   else if(act==="restore")restoreForm();
@@ -1293,7 +1349,7 @@ document.addEventListener("click",async e=>{
     confirmBox(off?"Tắt mật khẩu chung?":"Bật lại mật khẩu chung?",off?"Sau khi tắt, Ban quản trị chỉ đăng nhập bằng tài khoản riêng. Người đang dùng mật khẩu chung vẫn làm việc được đến khi đăng xuất.":"Mật khẩu chung của Ban quản trị sẽ đăng nhập được trở lại.","Đồng ý",async()=>{try{await api("legacy_off",{off});state.meta.legacyOff=off;render()}catch(err){fail(err);return false}});
   }
   else if(act==="reload"){loadErr=false;render();try{await loadAll()}catch(e){loadErr=true}render()}
-  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
+  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;grps=null;rules=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
   else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(err){fail(err)}})}
   else if(act==="goto-pending"){filt.txn.status="pending";location.hash="thu-chi";render()}
   else if(act==="print")window.print();

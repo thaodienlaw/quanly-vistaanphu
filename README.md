@@ -78,6 +78,12 @@ Trong tab **Quản trị** (chỉ Trưởng ban thấy):
 - **Tài khoản người dùng**: loại Trưởng ban, Nhân viên (chọn nhóm) hoặc Cư dân (gắn số căn). Tài khoản cũ (Kế toán, Ban quản lý, Ban quản trị, Ban kiểm tra) được tự chuyển vào nhóm tương ứng lần đầu sau khi cập nhật.
 - **Quy tắc mã**: mã tự cấp, không sửa tay. Mặc định: nhóm `NH-KT`, người dùng `KT-001` (mã nhóm + số), tài sản `TS-0001`, bảo trì `BT-2026-0001`, phiếu thu `PT-2026-0001`, phiếu chi `PC-2026-0001`, nhà thầu `NT-001`. Trưởng ban đổi tiền tố, có năm hay không, số chữ số; áp dụng cho hồ sơ tạo sau đó. Nút "Đánh mã bù" cấp mã cho hồ sơ cũ còn thiếu (lần đầu cập nhật hệ thống tự làm).
 
+## Công việc bảo trì và dự toán quỹ
+
+- **Công việc** (tab mới, nhân viên thấy): phiếu công việc giao cho một nhóm, đi theo bước Đề xuất, Duyệt, Thực hiện, Chờ nghiệm thu, Hoàn thành (hoặc Từ chối, Hủy). Phiếu có dự toán từ mức duyệt chi lớn trở lên phải do Trưởng ban hoặc Ban quản trị duyệt, người tạo không tự duyệt. Khi nghiệm thu, hệ thống tự ghi một lần bảo trì vào Nhật ký của tài sản, kèm chi phí thực tế. Mọi bước được lưu lịch sử và nhật ký. Nút "Tạo phiếu việc" có ngay ở Lịch tới hạn.
+- **Ghi chi vào quỹ**: người có quyền ghi thu chi tích "Ghi luôn khoản chi vào Quỹ bảo trì" khi nghiệm thu. Nếu không, tab Thu chi có mục "Chi phí bảo trì chưa ghi vào quỹ" với nút "Ghi chi" cho kế toán.
+- **Dự toán** (Báo cáo, chọn "Dự toán và thực hiện"): Trưởng ban hoặc Ban quản trị lập dự toán năm theo hạng mục thu, chi của từng quỹ; bảng so sánh với thực hiện, còn lại và tỷ lệ. Hạng mục chi dùng từ 90% dự toán sẽ báo ở Tổng quan. Nhóm không có quyền xem quỹ không thấy dự toán.
+
 Quyền "Hiện menu Căn hộ, Gửi xe, Biểu quyết, Tiện ích" chỉ ẩn hiện menu; việc được làm trong các mục đó vẫn theo quyền Nhập liệu, Biểu quyết, Tiện ích. Quyền được kiểm tra ở máy chủ (`$CAPS` trong api.php), giao diện chỉ ẩn nút cho gọn.
 
 ## Bảo mật tài khoản và sao lưu

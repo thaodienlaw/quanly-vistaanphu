@@ -78,7 +78,7 @@ $CAPS = [
     'audit'    => ['admin', 'board', 'auditor'],                                     // nhật ký thay đổi
     'system'   => ['admin'],                                                         // tài khoản, cài đặt, sao lưu, khôi phục
 ];
-$COLS = ['txns', 'assets', 'maints', 'notices', 'vendors', 'vratings', 'settings'];
+$COLS = ['txns', 'assets', 'maints', 'notices', 'vendors', 'vratings', 'settings', 'budgets'];
 $ID_RE = '/^[A-Za-z0-9_.:@+~-]{1,100}$/';
 
 /* Vai trò và nhóm lấy từ CSDL ở mỗi yêu cầu: đổi nhóm, khóa tài khoản có hiệu lực ngay. */
@@ -95,7 +95,7 @@ function resolveIdentity(PDO $pdo): void {
     $role = $ur['role'];
     if ($role === 'staff') {
         $MYCAPS = $ur['gname'] !== null ? array_values(array_intersect(CAP_NAMES, (array)json_decode((string)$ur['caps'], true))) : [];
-        $MYGROUP = ['code' => $ur['gcode'], 'name' => $ur['gname']];
+        $MYGROUP = ['code' => $ur['gcode'], 'name' => $ur['gname'], 'id' => $ur['grp']];
     }
     $MYCODE = (string)$ur['code'];
 }
@@ -108,7 +108,7 @@ function capList(?string $role): array {
 }
 function identity(?string $role): array {
     global $MYGROUP, $MYCODE;
-    return ['caps' => capList($role), 'group' => $MYGROUP['name'] ?? null, 'groupCode' => $MYGROUP['code'] ?? null, 'code' => $MYCODE];
+    return ['caps' => capList($role), 'group' => $MYGROUP['name'] ?? null, 'groupCode' => $MYGROUP['code'] ?? null, 'groupId' => $MYGROUP['id'] ?? null, 'code' => $MYCODE];
 }
 
 /* ---------- tiện ích ---------- */
@@ -229,6 +229,8 @@ function summ(string $col, array $d): string {
         case 'vratings': return 'Đánh giá nhà thầu (' . ($d['date'] ?? '') . ')';
         case 'notices': return ($d['type'] ?? 'Thông báo') . ': ' . ($d['title'] ?? '');
         case 'settings': return 'Cài đặt chung';
+        case 'tasks': return trim(($d['code'] ?? '') . ' ' . ($d['title'] ?? '')) . ' · ' . ($d['status'] ?? '');
+        case 'budgets': return 'Dự toán năm ' . ($d['year'] ?? '');
     }
     return '';
 }
@@ -287,6 +289,7 @@ function codeRulesDefault(): array {
         'maint'        => ['label' => 'Bảo trì, sửa chữa',      'prefix' => 'BT', 'year' => true,  'width' => 4, 'eg' => 'BT-2026-0007'],
         'txnIn'        => ['label' => 'Phiếu thu',              'prefix' => 'PT', 'year' => true,  'width' => 4, 'eg' => 'PT-2026-0015'],
         'txnOut'       => ['label' => 'Phiếu chi',              'prefix' => 'PC', 'year' => true,  'width' => 4, 'eg' => 'PC-2026-0031'],
+        'task'         => ['label' => 'Phiếu công việc',        'prefix' => 'CV', 'year' => true,  'width' => 4, 'eg' => 'CV-2026-0003'],
         'vendor'       => ['label' => 'Nhà thầu',               'prefix' => 'NT', 'year' => false, 'width' => 3, 'eg' => 'NT-004'],
     ];
 }
@@ -329,6 +332,7 @@ function docCodeKey(string $col, array $d): ?string {
     if ($col === 'assets') return 'asset';
     if ($col === 'maints') return 'maint';
     if ($col === 'vendors') return 'vendor';
+    if ($col === 'tasks') return 'task';
     if ($col === 'txns') return ($d['type'] ?? '') === 'in' ? 'txnIn' : 'txnOut';
     return null;
 }
@@ -562,7 +566,7 @@ switch ($a) {
 
     case 'all': {
         need($role, 1);
-        $res = ['txns' => [], 'assets' => [], 'maints' => [], 'notices' => [], 'vendors' => [], 'vratings' => [], 'comments' => [], 'settings' => new stdClass(), 'files' => [], 'meta' => new stdClass()];
+        $res = ['txns' => [], 'assets' => [], 'maints' => [], 'notices' => [], 'vendors' => [], 'vratings' => [], 'tasks' => [], 'budgets' => [], 'groups' => [], 'comments' => [], 'settings' => new stdClass(), 'files' => [], 'meta' => new stdClass()];
         foreach ($pdo->query('SELECT col, id, data FROM docs') as $r) {
             $d = json_decode($r['data'], true);
             if (!is_array($d)) continue;
@@ -576,8 +580,11 @@ switch ($a) {
         $res['comments'] = $pdo->query('SELECT id, asset_id AS assetId, name, text, uid, ts FROM comments ORDER BY id DESC LIMIT 2000')->fetchAll(PDO::FETCH_ASSOC);
         $res['files'] = $pdo->query('SELECT id, name, mime, size, ref_col AS col, ref_id AS ref, ts FROM files ORDER BY ts')->fetchAll(PDO::FETCH_ASSOC);
         if (!can($role, 'seeall')) $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'vendors'));
+        if (can($role, 'seeall')) $res['groups'] = $pdo->query('SELECT id, code, name FROM ugroups ORDER BY created')->fetchAll(PDO::FETCH_ASSOC);
+        else $res['tasks'] = [];
+        usort($res['tasks'], fn($a, $b) => (int)($b['at'] ?? 0) <=> (int)($a['at'] ?? 0));
         if (!can($role, 'fund')) {   // nhóm không được xem quỹ: bỏ thu chi, số dư đầu kỳ, hạn mức duyệt và chứng từ thu chi
-            $res['txns'] = [];
+            $res['txns'] = []; $res['budgets'] = [];
             $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'txns'));
             if (is_array($res['settings'])) unset($res['settings']['openMaint'], $res['settings']['openOps'], $res['settings']['approvalLimit']);
         }
@@ -603,7 +610,7 @@ switch ($a) {
         need($role, 1);
         $col = (string)($body['col'] ?? ''); $id = (string)($body['id'] ?? ''); $data = $body['data'] ?? null;
         if (!in_array($col, $COLS, true) || !preg_match($ID_RE, $id) || !is_array($data)) out(400, ['error' => 'bad_request']);
-        needCap($role, $col === 'settings' ? 'system' : ($col === 'txns' ? 'txn' : 'manage'));
+        needCap($role, $col === 'settings' ? 'system' : ($col === 'txns' ? 'txn' : ($col === 'budgets' ? 'approve' : 'manage')));
         unset($data['id']);
         $old = getDoc($pdo, $col, $id);
         if ($col === 'settings') {
@@ -634,6 +641,16 @@ switch ($a) {
                 $data['status'] = 'approved';
                 if ($same && !empty($old['approvedBy'])) { $data['approvedBy'] = $old['approvedBy']; $data['approvedByName'] = $old['approvedByName'] ?? ''; $data['approvedAt'] = $old['approvedAt'] ?? 0; }
             }
+        } elseif ($col === 'budgets') {
+            $yr = (int)($data['year'] ?? 0);
+            if ($yr < 2000 || $yr > 2100 || $id !== 'y' . $yr) out(400, ['error' => 'bad_request']);
+            $lines = [];
+            foreach (array_slice((array)($data['lines'] ?? []), 0, 100) as $ln) {
+                $ln = (array)$ln; $amt = (float)($ln['amount'] ?? 0); $cat = mb_substr(trim((string)($ln['category'] ?? '')), 0, 60);
+                if ($cat === '' || $amt <= 0 || !in_array($ln['fund'] ?? '', ['maint', 'ops'], true) || !in_array($ln['type'] ?? '', ['in', 'out'], true)) continue;
+                $lines[] = ['fund' => $ln['fund'], 'type' => $ln['type'], 'category' => $cat, 'amount' => $amt];
+            }
+            $data = ['year' => $yr, 'lines' => $lines];
         } elseif ($col === 'maints') {
             if (trim((string)($data['assetId'] ?? '')) === '') out(400, ['error' => 'bad_request']);
             if (!in_array($data['kind'] ?? 'Bảo trì', ['Bảo trì', 'Sửa chữa', 'Kiểm định', 'Sử dụng', 'Đề xuất'], true)) $data['kind'] = 'Bảo trì';
@@ -663,6 +680,10 @@ switch ($a) {
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
         if (strlen($json) > 60000) out(413, ['error' => 'too_large']);
         setDoc($pdo, $col, $id, $data);
+        if ($col === 'txns' && !empty($data['maintId']) && is_string($data['maintId'])) {   // khoản chi từ bảo trì: nối ngược vào lần bảo trì
+            $mt = getDoc($pdo, 'maints', $data['maintId']);
+            if ($mt && empty($mt['txnId'])) { $mt['txnId'] = $id; setDoc($pdo, 'maints', $data['maintId'], $mt); }
+        }
         audit($pdo, $old ? 'sửa' : 'tạo', $col, $id, summ($col, $data), $old);
         $data['id'] = $id;
         out(200, ['ok' => true, 'doc' => $data]);
@@ -672,7 +693,7 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         $col = (string)($body['col'] ?? ''); $id = (string)($body['id'] ?? '');
         if (!in_array($col, $COLS, true) || !preg_match($ID_RE, $id)) out(400, ['error' => 'bad_request']);
-        needCap($role, in_array($col, ['assets', 'maints', 'notices', 'vendors', 'vratings'], true) ? 'manage' : 'system');
+        needCap($role, in_array($col, ['assets', 'maints', 'notices', 'vendors', 'vratings'], true) ? 'manage' : ($col === 'budgets' ? 'approve' : 'system'));
         $old = getDoc($pdo, $col, $id);
         $pdo->prepare('DELETE FROM docs WHERE col = ? AND id = ?')->execute([$col, $id]);
         if ($old) audit($pdo, 'xóa', $col, $id, summ($col, $old), $old);
@@ -788,6 +809,99 @@ switch ($a) {
             }
             audit($pdo, 'sửa tài khoản', 'users', $id, $u['username'] . ($abbr !== '' ? " (nhóm $abbr)" : '') . ($pw !== '' ? ' (đặt lại mật khẩu)' : '') . ($active ? '' : ' (đã khóa)'));
         }
+        out(200, ['ok' => true]);
+    }
+
+    case 'task_save': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'manage');
+        $id = (string)($body['id'] ?? '');
+        $old = $id !== '' ? getDoc($pdo, 'tasks', $id) : null;
+        if ($id !== '' && !$old) out(404, ['error' => 'not_found']);
+        if ($old && !in_array($old['status'], ['Đề xuất', 'Đã duyệt'], true)) out(409, ['error' => 'task_locked']);
+        $title = str($body, 'title', 160);
+        if ($title === '') out(400, ['error' => 'bad_request']);
+        $asset = (string)($body['assetId'] ?? ''); if ($asset !== '' && !getDoc($pdo, 'assets', $asset)) out(400, ['error' => 'bad_request']);
+        $grp = (string)($body['groupId'] ?? '');
+        if ($grp !== '') { $g = $pdo->prepare('SELECT COUNT(*) FROM ugroups WHERE id = ?'); $g->execute([$grp]); if (!(int)$g->fetchColumn()) out(400, ['error' => 'bad_group']); }
+        $due = (string)($body['due'] ?? ''); if ($due !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $due)) out(400, ['error' => 'bad_request']);
+        $kind = in_array($body['kind'] ?? '', ['Bảo trì', 'Sửa chữa', 'Kiểm định'], true) ? $body['kind'] : 'Bảo trì';
+        $who = actor();
+        $d = [
+            'title' => $title, 'assetId' => $asset, 'groupId' => $grp, 'due' => $due, 'kind' => $kind,
+            'priority' => ($body['priority'] ?? '') === 'Gấp' ? 'Gấp' : 'Thường',
+            'estCost' => max(0, (float)($body['estCost'] ?? 0)), 'note' => mb_substr((string)($body['note'] ?? ''), 0, 2000),
+        ];
+        if ($old) {
+            $d = array_merge($old, ['title' => $title, 'assetId' => $asset, 'groupId' => $grp, 'due' => $due, 'kind' => $kind, 'priority' => ($body['priority'] ?? '') === 'Gấp' ? 'Gấp' : 'Thường', 'estCost' => max(0, (float)($body['estCost'] ?? 0)), 'note' => mb_substr((string)($body['note'] ?? ''), 0, 2000)]);
+            // sửa dự toán sau khi đã duyệt: quay về chờ duyệt
+            if ($old['status'] === 'Đã duyệt' && (float)$old['estCost'] !== (float)$d['estCost']) { $d['status'] = 'Đề xuất'; $d['trail'][] = ['at' => time(), 'by' => $who['id'], 'name' => $who['name'], 'to' => 'Đề xuất', 'note' => 'Sửa dự toán, cần duyệt lại']; }
+        } else {
+            $id = 't' . bin2hex(random_bytes(6));
+            $d['status'] = 'Đề xuất'; $d['by'] = $who['id']; $d['byName'] = $who['name']; $d['at'] = time();
+            $d['code'] = nextCode($pdo, 'task');
+            $d['trail'] = [['at' => time(), 'by' => $who['id'], 'name' => $who['name'], 'to' => 'Đề xuất', 'note' => '']];
+        }
+        setDoc($pdo, 'tasks', $id, $d);
+        audit($pdo, $old ? 'sửa phiếu việc' : 'tạo phiếu việc', 'tasks', $id, summ('tasks', $d));
+        $d['id'] = $id;
+        out(200, ['ok' => true, 'doc' => $d]);
+    }
+
+    case 'task_move': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'manage');
+        $id = (string)($body['id'] ?? ''); $to = (string)($body['to'] ?? ''); $note = mb_substr(trim((string)($body['note'] ?? '')), 0, 500);
+        $d = getDoc($pdo, 'tasks', $id);
+        if (!$d) out(404, ['error' => 'not_found']);
+        $flow = [
+            'Đề xuất' => ['Đã duyệt', 'Từ chối', 'Đã hủy'],
+            'Đã duyệt' => ['Đang thực hiện', 'Đã hủy'],
+            'Đang thực hiện' => ['Chờ nghiệm thu', 'Đã hủy'],
+            'Chờ nghiệm thu' => ['Hoàn thành', 'Đang thực hiện'],
+        ];
+        if (!in_array($to, $flow[$d['status']] ?? [], true)) out(409, ['error' => 'bad_move']);
+        $who = actor();
+        if (in_array($to, ['Từ chối', 'Đã hủy'], true) && $note === '') out(400, ['error' => 'reason']);
+        if ($to === 'Đang thực hiện' && $d['status'] === 'Chờ nghiệm thu' && $note === '') out(400, ['error' => 'reason']);
+        if ($d['status'] === 'Đề xuất' && in_array($to, ['Đã duyệt', 'Từ chối'], true)) {
+            $limit = (float)(settingsDoc($pdo)['approvalLimit'] ?? 0);
+            if ($limit > 0 && (float)$d['estCost'] >= $limit) {
+                needCap($role, 'approve');
+                if ($who['id'] !== 'legacy' && ($d['by'] ?? '') === $who['id']) out(403, ['error' => 'self_approve']);
+            }
+        }
+        $extra = '';
+        if ($to === 'Hoàn thành') {
+            $date = (string)($body['date'] ?? date('Y-m-d'));
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) out(400, ['error' => 'bad_request']);
+            $cost = max(0, (float)($body['cost'] ?? 0)); $vendor = mb_substr(trim((string)($body['vendor'] ?? '')), 0, 120);
+            $mid = 'mw' . bin2hex(random_bytes(5));
+            $m = ['date' => $date, 'assetId' => (string)$d['assetId'], 'kind' => $d['kind'] ?? 'Bảo trì', 'title' => $d['title'], 'vendor' => $vendor, 'cost' => $cost, 'fund' => 'maint', 'note' => trim('Từ phiếu ' . ($d['code'] ?? '') . ($note !== '' ? '. ' . $note : '')), 'txnId' => '', 'taskId' => $id];
+            if ($m['assetId'] === '') out(400, ['error' => 'task_no_asset']);
+            $m['code'] = nextCode($pdo, 'maint', docYear($m));
+            setDoc($pdo, 'maints', $mid, $m);
+            audit($pdo, 'tạo', 'maints', $mid, summ('maints', $m));
+            $d['maintId'] = $mid; $d['actualCost'] = $cost; $d['doneAt'] = $date;
+            $extra = ' · chi phí ' . vnd($cost);
+        }
+        $d['status'] = $to;
+        $d['trail'][] = ['at' => time(), 'by' => $who['id'], 'name' => $who['name'], 'to' => $to, 'note' => $note . $extra];
+        setDoc($pdo, 'tasks', $id, $d);
+        audit($pdo, 'phiếu việc: ' . $to, 'tasks', $id, summ('tasks', $d) . ($note !== '' ? ' · ' . $note : ''));
+        $d['id'] = $id;
+        out(200, ['ok' => true, 'doc' => $d, 'maintId' => $d['maintId'] ?? null]);
+    }
+
+    case 'task_del': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'manage');
+        $id = (string)($body['id'] ?? '');
+        $d = getDoc($pdo, 'tasks', $id);
+        if (!$d) out(404, ['error' => 'not_found']);
+        if (!in_array($d['status'], ['Đề xuất', 'Từ chối', 'Đã hủy'], true)) out(409, ['error' => 'task_locked']);
+        $pdo->prepare("DELETE FROM docs WHERE col = 'tasks' AND id = ?")->execute([$id]);
+        audit($pdo, 'xóa phiếu việc', 'tasks', $id, summ('tasks', $d), $d);
         out(200, ['ok' => true]);
     }
 

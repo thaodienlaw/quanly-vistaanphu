@@ -78,7 +78,7 @@ $CAPS = [
     'audit'    => ['admin', 'board', 'auditor'],                                     // nhật ký thay đổi
     'system'   => ['admin'],                                                         // tài khoản, cài đặt, sao lưu, khôi phục
 ];
-$COLS = ['txns', 'assets', 'maints', 'notices', 'vendors', 'vratings', 'settings', 'budgets'];
+$COLS = ['txns', 'assets', 'maints', 'notices', 'vendors', 'vratings', 'settings', 'budgets', 'bank'];
 $ID_RE = '/^[A-Za-z0-9_.:@+~-]{1,100}$/';
 
 /* Vai trò và nhóm lấy từ CSDL ở mỗi yêu cầu: đổi nhóm, khóa tài khoản có hiệu lực ngay. */
@@ -230,6 +230,7 @@ function summ(string $col, array $d): string {
         case 'notices': return ($d['type'] ?? 'Thông báo') . ': ' . ($d['title'] ?? '');
         case 'settings': return 'Cài đặt chung';
         case 'tasks': return trim(($d['code'] ?? '') . ' ' . ($d['title'] ?? '')) . ' · ' . ($d['status'] ?? '');
+        case 'bank': return 'Sao kê ' . fundName((string)($d['fund'] ?? '')) . ' tháng ' . ($d['month'] ?? '') . ' (' . count((array)($d['lines'] ?? [])) . ' dòng)';
         case 'budgets': return 'Dự toán năm ' . ($d['year'] ?? '');
     }
     return '';
@@ -610,7 +611,7 @@ switch ($a) {
         need($role, 1);
         $col = (string)($body['col'] ?? ''); $id = (string)($body['id'] ?? ''); $data = $body['data'] ?? null;
         if (!in_array($col, $COLS, true) || !preg_match($ID_RE, $id) || !is_array($data)) out(400, ['error' => 'bad_request']);
-        needCap($role, $col === 'settings' ? 'system' : ($col === 'txns' ? 'txn' : ($col === 'budgets' ? 'approve' : 'manage')));
+        needCap($role, $col === 'settings' ? 'system' : ($col === 'txns' ? 'txn' : ($col === 'budgets' ? 'approve' : ($col === 'bank' ? 'txn' : 'manage'))));
         unset($data['id']);
         $old = getDoc($pdo, $col, $id);
         if ($col === 'settings') {
@@ -651,6 +652,16 @@ switch ($a) {
                 $lines[] = ['fund' => $ln['fund'], 'type' => $ln['type'], 'category' => $cat, 'amount' => $amt];
             }
             $data = ['year' => $yr, 'lines' => $lines];
+        } elseif ($col === 'bank') {   // sao kê ngân hàng theo quỹ và tháng, dùng để đối chiếu với sổ thu chi
+            $mo = (string)($data['month'] ?? ''); $fd = (string)($data['fund'] ?? '');
+            if (!preg_match('/^\d{4}-\d{2}$/', $mo) || !in_array($fd, ['maint', 'ops'], true) || $id !== $mo . '-' . $fd) out(400, ['error' => 'bad_request']);
+            $lines = [];
+            foreach (array_slice((array)($data['lines'] ?? []), 0, 500) as $ln) {
+                $ln = (array)$ln; $amt = round((float)($ln['amount'] ?? 0), 2);
+                if ($amt == 0.0 || !preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)($ln['date'] ?? ''))) continue;
+                $lines[] = ['id' => mb_substr((string)($ln['id'] ?? ''), 0, 24), 'date' => $ln['date'], 'desc' => mb_substr(trim((string)($ln['desc'] ?? '')), 0, 120), 'amount' => $amt, 'txnId' => mb_substr((string)($ln['txnId'] ?? ''), 0, 100), 'ign' => !empty($ln['ign'])];
+            }
+            $data = ['month' => $mo, 'fund' => $fd, 'closing' => isset($data['closing']) && $data['closing'] !== '' && $data['closing'] !== null ? (float)$data['closing'] : null, 'lines' => $lines];
         } elseif ($col === 'maints') {
             if (trim((string)($data['assetId'] ?? '')) === '') out(400, ['error' => 'bad_request']);
             if (!in_array($data['kind'] ?? 'Bảo trì', ['Bảo trì', 'Sửa chữa', 'Kiểm định', 'Sử dụng', 'Đề xuất'], true)) $data['kind'] = 'Bảo trì';
@@ -678,7 +689,7 @@ switch ($a) {
             $data['code'] = !empty($old['code']) ? $old['code'] : nextCode($pdo, $k, docYear($data));
         }
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
-        if (strlen($json) > 60000) out(413, ['error' => 'too_large']);
+        if (strlen($json) > ($col === 'bank' ? 190000 : 60000)) out(413, ['error' => 'too_large']);
         setDoc($pdo, $col, $id, $data);
         if ($col === 'txns' && !empty($data['maintId']) && is_string($data['maintId'])) {   // khoản chi từ bảo trì: nối ngược vào lần bảo trì
             $mt = getDoc($pdo, 'maints', $data['maintId']);
@@ -693,7 +704,7 @@ switch ($a) {
         if ($method !== 'POST') out(405, ['error' => 'method']);
         $col = (string)($body['col'] ?? ''); $id = (string)($body['id'] ?? '');
         if (!in_array($col, $COLS, true) || !preg_match($ID_RE, $id)) out(400, ['error' => 'bad_request']);
-        needCap($role, in_array($col, ['assets', 'maints', 'notices', 'vendors', 'vratings'], true) ? 'manage' : ($col === 'budgets' ? 'approve' : 'system'));
+        needCap($role, in_array($col, ['assets', 'maints', 'notices', 'vendors', 'vratings'], true) ? 'manage' : ($col === 'budgets' ? 'approve' : ($col === 'bank' ? 'txn' : 'system')));
         $old = getDoc($pdo, $col, $id);
         $pdo->prepare('DELETE FROM docs WHERE col = ? AND id = ?')->execute([$col, $id]);
         if ($old) audit($pdo, 'xóa', $col, $id, summ($col, $old), $old);
@@ -810,6 +821,13 @@ switch ($a) {
             audit($pdo, 'sửa tài khoản', 'users', $id, $u['username'] . ($abbr !== '' ? " (nhóm $abbr)" : '') . ($pw !== '' ? ' (đặt lại mật khẩu)' : '') . ($active ? '' : ' (đã khóa)'));
         }
         out(200, ['ok' => true]);
+    }
+
+    case 'bank_list': {
+        needCap($role, 'txn');
+        $docs = allDocs($pdo, 'bank');
+        usort($docs, fn($a, $b) => strcmp((string)($b['month'] ?? ''), (string)($a['month'] ?? '')));
+        out(200, ['items' => $docs]);
     }
 
     case 'task_save': {

@@ -91,3 +91,14 @@ Quyền "Hiện menu Căn hộ, Gửi xe, Biểu quyết, Tiện ích" chỉ ẩ
 - Tài khoản mới tạo, hoặc được Trưởng ban đặt lại mật khẩu, bị buộc đổi mật khẩu ở lần đăng nhập đầu. Mật khẩu mới phải khác mật khẩu cấp.
 - Xác thực 2 bước (TOTP) tùy chọn cho mọi tài khoản riêng: nút "Bảo mật 2 bước" trên đầu trang, dùng Google Authenticator, Microsoft Authenticator, Authy (nhập khóa thủ công). Mỗi mã chỉ dùng được một lần. Trưởng ban tắt giúp khi người dùng mất điện thoại (Quản trị, Sửa tài khoản).
 - Tự sao lưu cơ sở dữ liệu mỗi ngày vào thư mục `backups` cạnh tệp dữ liệu (ngoài public_html), giữ 14 bản gần nhất; Trưởng ban tải ở tab Quản trị. Tệp chứng từ đính kèm vẫn tải thủ công (.zip).
+
+## Mã QR tài sản và đối chiếu sao kê
+
+**Mã QR tài sản.** Ở tab Tài sản, bấm “QR” để xem và in tem của một tài sản, hoặc “In tem QR tất cả” để in cả lưới tem (mã, tên, QR). Quét bằng điện thoại sẽ mở `#ts-<id>`: sau khi đăng nhập, hệ thống mở thẳng hồ sơ tài sản, gồm lịch sử bảo trì, chứng từ và bình luận. Mã QR được tạo ngay trên trình duyệt, không gọi dịch vụ ngoài. Mã chứa địa chỉ trang, không chứa dữ liệu, nên không lộ thông tin cho người chưa đăng nhập.
+
+**Đối chiếu sao kê ngân hàng** (tab Đối chiếu, cần quyền Thu chi, ví dụ nhóm Quản lý chung và Kế toán). Cuối tháng:
+1. Bấm “Nhập sao kê”, chọn quỹ, tải tệp CSV hoặc dán bảng copy từ Excel. Hệ thống tự nhận cột ngày, diễn giải, ghi nợ, ghi có (hoặc một cột số tiền, số âm là chi); có bước kiểm tra lại cột.
+2. Dòng sao kê được tự khớp với khoản thu chi cùng quỹ, cùng chiều, cùng số tiền, lệch tối đa 5 ngày. Dòng chưa khớp có thể chọn khoản trong sổ, ghi thẳng vào sổ thu chi, hoặc bỏ qua (ví dụ lãi tiền gửi nhỏ).
+3. Nhập số dư cuối tháng trên sao kê để xem chênh lệch với số dư theo sổ. Danh sách “khoản trong sổ chưa có trên sao kê” giúp tìm séc chưa qua ngân hàng hoặc khoản ghi nhầm.
+
+Sao kê nhập lại nhiều lần không bị trùng dòng. Sao kê lưu theo quỹ và tháng, ghi nhật ký thao tác, tối đa 500 dòng mỗi tháng.

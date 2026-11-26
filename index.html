@@ -159,6 +159,7 @@ a.btn{text-decoration:none;color:var(--ink);display:inline-flex;align-items:cent
       <button data-tab="tong-quan">Tổng quan</button>
       <button data-tab="thong-bao">Thông báo</button>
       <button data-tab="thu-chi">Thu chi</button>
+      <button data-tab="doi-chieu" id="tabBank" hidden>Đối chiếu</button>
       <button data-tab="tai-san">Tài sản</button>
       <button data-tab="bao-tri">Bảo trì</button>
       <button data-tab="cong-viec" id="tabTask" hidden>Công việc</button>
@@ -199,7 +200,7 @@ const ROLES={admin:"Trưởng ban (toàn quyền)",board:"Ban quản trị (duy�
 const roleLabel=u=>u.role==="staff"?(u.gname||"Nhân viên, chưa có nhóm"):(ROLES[u.role]||u.role);
 const CAPS_SHORT={fund:"Xem quỹ",txn:"Ghi thu chi",approve:"Duyệt chi lớn",manage:"Nhập liệu vận hành",seeall:"Xem hồ sơ nội bộ",facility:"Tiện ích",govern:"Biểu quyết, căn hộ",audit:"Xem nhật ký",resident:"Menu cư dân"};
 const CAPL={fund:"Xem thu chi, số dư quỹ và báo cáo quỹ",txn:"Ghi, sửa, hủy thu chi và chứng từ thu chi",approve:"Duyệt khoản chi lớn",manage:"Nhập tài sản, bảo trì, nhà thầu, thông báo, báo cáo hoạt động; duyệt gửi xe",seeall:"Xem hồ sơ nội bộ: căn hộ, xe, hợp đồng nhà thầu",facility:"Quản lý tiện ích và lịch đặt",govern:"Tạo biểu quyết, quản lý danh sách căn hộ",audit:"Xem nhật ký thay đổi",resident:"Hiện các menu Căn hộ, Gửi xe, Biểu quyết, Tiện ích"};
-const TABS=["tong-quan","thong-bao","thu-chi","tai-san","bao-tri","cong-viec","nha-thau","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","nhat-ky","quan-tri"];
+const TABS=["tong-quan","thong-bao","thu-chi","doi-chieu","tai-san","bao-tri","cong-viec","nha-thau","can-ho","gui-xe","bieu-quyet","tien-ich","bao-cao","gop-y","nhat-ky","quan-tri"];
 const VTYPES=["Xe máy","Ô tô","Xe điện","Xe đạp"];
 const VSTAT=["Chờ duyệt","Đã duyệt","Từ chối","Ngừng"];
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -233,7 +234,8 @@ let filt={
   maint:{asset:""},
   rep:{period:"quarter",year:String(new Date().getFullYear()),quarter:String(Math.floor(new Date().getMonth()/3)+1),month:today().slice(0,7),fund:"",view:"fin"},
   audit:{q:""},
-  task:{status:"",group:"",q:"",mine:false}
+  task:{status:"",group:"",q:"",mine:false},
+  bank:{fund:"maint",month:today().slice(0,7)}
 };
 const CAPS={resident:["viewer","editor","admin","accountant","manager","board","auditor"],fund:["viewer","editor","admin","accountant","manager","board","auditor"],seeall:["editor","admin","accountant","manager","board","auditor"],manage:["editor","admin","manager","board"],txn:["editor","admin","accountant","manager"],approve:["admin","board"],govern:["admin","board"],facility:["admin","board","manager"],audit:["admin","board","auditor"],system:["admin"]};
 const can=c=>!!me&&(Array.isArray(me.caps)?me.caps.includes(c):(CAPS[c]||[]).includes(me.role));
@@ -361,10 +363,12 @@ const pendingList=()=>state.txns.filter(t=>t.status==="pending"&&!t.voided);
 /* ---------- khung trang ---------- */
 function curTab(){
   const h=location.hash.slice(1);
+  if(h.startsWith("ts-"))return "tai-san";
   if(!TABS.includes(h))return "tong-quan";
   if(h==="gop-y"&&!can("manage"))return "tong-quan";
   if(h==="thu-chi"&&!can("fund"))return "tong-quan";
   if(h==="cong-viec"&&!isEd())return "tong-quan";
+  if(h==="doi-chieu"&&!can("txn"))return "tong-quan";
   if((h==="can-ho"||h==="bieu-quyet"||h==="tien-ich")&&!can("resident"))return "tong-quan";
   if(h==="nhat-ky"&&!(can("audit")&&!isAdm()))return "tong-quan";
   if(h==="quan-tri"&&!isAdm())return "tong-quan";
@@ -389,7 +393,7 @@ function render(){
   $("#tabGopY").hidden=!can("manage");$("#tabAdm").hidden=!adm;$("#tabAudit").hidden=!(can("audit")&&!adm);$("#tabUnits").hidden=!(ed&&can("resident"));$("#tabVeh").hidden=!((ed&&can("resident"))||(me&&me.unit));document.querySelector('[data-tab="bieu-quyet"]').hidden=!can("resident");document.querySelector('[data-tab="tien-ich"]').hidden=!can("resident");$("#btnLogout").hidden=!me;$("#btnTotp").hidden=!(me&&me.uid);
   document.querySelector("nav.tabs").hidden=!me;
   document.querySelector('[data-tab="thu-chi"]').hidden=!can("fund");
-  $("#tabTask").hidden=!isEd();
+  $("#tabTask").hidden=!isEd();$("#tabBank").hidden=!can("txn");
   const who=$("#who");
   who.textContent=me?((me.name||(me.role==="viewer"?"Cư dân":"Ban quản trị, mật khẩu chung"))+(me.unit?" · căn "+me.unit:"")+" · "+(me.role==="staff"?(me.group||"Nhân viên"):(ROLES[me.role]||""))+(me.code&&me.role!=="viewer"?" · "+me.code:"")):"";
   const tab=curTab();
@@ -401,8 +405,9 @@ function render(){
   if(loaded<3){v.innerHTML=loadErr?'<div class="empty">Chưa tải được dữ liệu từ máy chủ.<br><button class="btn" data-act="reload" style="margin-top:10px">Tải lại</button></div>':'<div class="empty">Đang tải dữ liệu…</div>';return}
   let html="";
   if(hasSample()&&adm)html+='<div class="banner info"><span>Đang hiển thị dữ liệu mẫu để bạn xem thử cách dùng.</span><button class="btn small" data-act="clear-sample">Xóa dữ liệu mẫu</button></div>';
-  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"tien-ich":vFacilities,"thu-chi":vTxns,"nha-thau":vVendors,"tai-san":vAssets,"bao-tri":vMaint,"cong-viec":vTasks,"bao-cao":vReport,"gop-y":vFeedback,"nhat-ky":vAuditTab,"quan-tri":vAdmin})[tab]();
+  html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"tien-ich":vFacilities,"thu-chi":vTxns,"nha-thau":vVendors,"tai-san":vAssets,"bao-tri":vMaint,"cong-viec":vTasks,"doi-chieu":vBank,"bao-cao":vReport,"gop-y":vFeedback,"nhat-ky":vAuditTab,"quan-tri":vAdmin})[tab]();
   v.innerHTML=html;
+  if(/^#ts-/.test(location.hash)){const id=decodeURIComponent(location.hash.slice(4));history.replaceState(null,"",location.pathname+"#tai-san");const a=assetById(id);if(a)setTimeout(()=>assetDetail(id),0);else toast("Không tìm thấy tài sản của mã QR này.")}
   if(keep){const el=document.getElementById(keep.id);if(el){el.focus();try{el.setSelectionRange(keep.s,keep.e)}catch(e){}}}
 }
 const isEmpty=()=>!state.txns.length&&!state.assets.length&&!state.maints.length;
@@ -592,6 +597,252 @@ function budgetForm(y){
   });
 }
 
+
+/* ---------- mã QR (tự viết, không dùng thư viện ngoài; mức sửa lỗi M, phiên bản 1 đến 6) ---------- */
+const QR_DATA=[0,16,28,44,64,86,108],QR_EC=[0,10,16,26,18,24,16],QR_BLK=[0,1,1,1,2,2,4],QR_AL=[0,0,18,22,26,30,34];
+const QR_EXP=new Array(512),QR_LOG=new Array(256);
+(()=>{let x=1;for(let i=0;i<255;i++){QR_EXP[i]=x;QR_LOG[x]=i;x<<=1;if(x&256)x^=0x11d}for(let i=255;i<512;i++)QR_EXP[i]=QR_EXP[i-255]})();
+const gmul=(a,b)=>a&&b?QR_EXP[QR_LOG[a]+QR_LOG[b]]:0;
+function rsEncode(data,ec){
+  let g=[1];
+  for(let i=0;i<ec;i++){const n=new Array(g.length+1).fill(0);for(let j=0;j<g.length;j++){n[j]^=g[j];n[j+1]^=gmul(g[j],QR_EXP[i])}g=n}
+  const res=new Array(ec).fill(0);
+  for(const d of data){const f=d^res[0];res.shift();res.push(0);if(f)for(let j=0;j<ec;j++)res[j]^=gmul(g[j+1],f)}
+  return res;
+}
+function qrPenalty(m){
+  const n=m.length;let r=0;
+  for(let pass=0;pass<2;pass++)for(let a=0;a<n;a++){let run=1;for(let b=1;b<n;b++){const cur=pass?m[b][a]:m[a][b],prev=pass?m[b-1][a]:m[a][b-1];if(cur===prev){run++;if(run===5)r+=3;else if(run>5)r++}else run=1}}
+  for(let y=0;y<n-1;y++)for(let x=0;x<n-1;x++){const c=m[y][x];if(c===m[y][x+1]&&c===m[y+1][x]&&c===m[y+1][x+1])r+=3}
+  const P=[1,0,1,1,1,0,1,0,0,0,0],Q=P.slice().reverse();
+  for(let pass=0;pass<2;pass++)for(let a=0;a<n;a++)for(let b=0;b+11<=n;b++){
+    let p=true,q=true;for(let k=0;k<11&&(p||q);k++){const v=(pass?m[b+k][a]:m[a][b+k])?1:0;if(v!==P[k])p=false;if(v!==Q[k])q=false}
+    if(p||q)r+=40}
+  let dark=0;m.forEach(row=>row.forEach(c=>{if(c)dark++}));
+  r+=(Math.ceil(Math.abs(dark*20-n*n*10)/(n*n))-1)*10;
+  return r;
+}
+function qrMatrix(text){
+  const bytes=[...new TextEncoder().encode(text)];
+  let v=1;while(v<=6&&bytes.length>QR_DATA[v]-2)v++;
+  if(v>6)throw new Error("qr-too-long");
+  const bits=[],put=(val,n)=>{for(let i=n-1;i>=0;i--)bits.push((val>>>i)&1)};
+  put(4,4);put(bytes.length,8);bytes.forEach(b=>put(b,8));
+  put(0,Math.min(4,QR_DATA[v]*8-bits.length));
+  while(bits.length%8)bits.push(0);
+  const cw=[];for(let i=0;i<bits.length;i+=8){let b=0;for(let j=0;j<8;j++)b=(b<<1)|bits[i+j];cw.push(b)}
+  for(let pad=0xec;cw.length<QR_DATA[v];pad=pad===0xec?0x11:0xec)cw.push(pad);
+  const nb=QR_BLK[v],bl=QR_DATA[v]/nb,blocks=[],ecs=[];
+  for(let i=0;i<nb;i++){const d=cw.slice(i*bl,(i+1)*bl);blocks.push(d);ecs.push(rsEncode(d,QR_EC[v]))}
+  const all=[];for(let i=0;i<bl;i++)blocks.forEach(b=>all.push(b[i]));
+  for(let i=0;i<QR_EC[v];i++)ecs.forEach(e=>all.push(e[i]));
+  const size=17+4*v;
+  const m=Array.from({length:size},()=>new Array(size).fill(false)),fn=Array.from({length:size},()=>new Array(size).fill(false));
+  const set=(mat,x,y,d,mark)=>{mat[y][x]=d;if(mark)fn[y][x]=true};
+  for(let i=0;i<size;i++){set(m,6,i,i%2===0,1);set(m,i,6,i%2===0,1)}
+  const finder=(cx,cy)=>{for(let dy=-4;dy<=4;dy++)for(let dx=-4;dx<=4;dx++){const x=cx+dx,y=cy+dy;if(x<0||y<0||x>=size||y>=size)continue;const d=Math.max(Math.abs(dx),Math.abs(dy));set(m,x,y,d!==2&&d!==4,1)}};
+  finder(3,3);finder(size-4,3);finder(3,size-4);
+  if(v>1){const c=QR_AL[v];for(let dy=-2;dy<=2;dy++)for(let dx=-2;dx<=2;dx++)set(m,c+dx,c+dy,Math.max(Math.abs(dx),Math.abs(dy))!==1,1)}
+  const drawFormat=(mat,mark,mask)=>{
+    let rem=mask;for(let i=0;i<10;i++)rem=(rem<<1)^((rem>>>9)*0x537);
+    const bits=((mask<<10)|rem)^0x5412,bit=i=>((bits>>>i)&1)!==0;
+    for(let i=0;i<=5;i++)set(mat,8,i,bit(i),mark);
+    set(mat,8,7,bit(6),mark);set(mat,8,8,bit(7),mark);set(mat,7,8,bit(8),mark);
+    for(let i=9;i<15;i++)set(mat,14-i,8,bit(i),mark);
+    for(let i=0;i<8;i++)set(mat,size-1-i,8,bit(i),mark);
+    for(let i=8;i<15;i++)set(mat,8,size-15+i,bit(i),mark);
+    set(mat,8,size-8,true,mark);
+  };
+  drawFormat(m,1,0);
+  let bi=0;
+  for(let right=size-1;right>=1;right-=2){if(right===6)right=5;
+    for(let vert=0;vert<size;vert++)for(let j=0;j<2;j++){const x=right-j,up=((right+1)&2)===0,y=up?size-1-vert:vert;
+      if(!fn[y][x]&&bi<all.length*8){m[y][x]=((all[bi>>>3]>>>(7-(bi&7)))&1)!==0;bi++}}}
+  const MASK=[(x,y)=>(x+y)%2===0,(x,y)=>y%2===0,(x,y)=>x%3===0,(x,y)=>(x+y)%3===0,(x,y)=>(Math.floor(x/3)+Math.floor(y/2))%2===0,(x,y)=>x*y%2+x*y%3===0,(x,y)=>(x*y%2+x*y%3)%2===0,(x,y)=>((x+y)%2+x*y%3)%2===0];
+  let best=null,bp=1e9;
+  for(let k=0;k<8;k++){
+    const c=m.map(r=>r.slice());
+    for(let y=0;y<size;y++)for(let x=0;x<size;x++)if(!fn[y][x]&&MASK[k](x,y))c[y][x]=!c[y][x];
+    drawFormat(c,0,k);
+    const pn=qrPenalty(c);if(pn<bp){bp=pn;best=c}
+  }
+  return best;
+}
+function qrSvg(text,px){
+  const m=qrMatrix(text),n=m.length,q=4;let d="";
+  m.forEach((row,y)=>row.forEach((c,x)=>{if(c)d+=`M${x+q} ${y+q}h1v1h-1z`}));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n+2*q} ${n+2*q}" width="${px}" height="${px}" shape-rendering="crispEdges" role="img" aria-label="Mã QR"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+}
+const assetUrl=a=>location.origin+location.pathname+"#ts-"+encodeURIComponent(a.id);
+function printQR(list){
+  const w=window.open("","_blank");
+  if(!w){toast("Trình duyệt đã chặn cửa sổ in. Hãy cho phép cửa sổ bật lên rồi thử lại.");return}
+  const org=esc(state.settings.name||"The Vista An Phú");
+  const items=list.map(a=>`<div class="lb"><small>${org}</small>${qrSvg(assetUrl(a),150)}<b>${esc(a.code||"")}</b><span>${esc(a.name)}</span></div>`).join("");
+  w.document.write(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>Tem QR tài sản</title><style>@page{margin:10mm}body{font-family:Arial,sans-serif;margin:0}.g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.lb{border:1px dashed #888;padding:8px;text-align:center;break-inside:avoid}.lb svg{width:38mm;height:38mm}.lb b{display:block;font-size:14px}.lb span{display:block;font-size:12px}.lb small{display:block;font-size:10px;color:#444}</style></head><body><div class="g">${items}</div></body></html>`);
+  w.document.close();w.focus();setTimeout(()=>w.print(),400);
+}
+function qrModal(a){
+  const url=assetUrl(a);
+  let svg;try{svg=qrSvg(url,220)}catch(e){toast("Địa chỉ quá dài để tạo mã QR.");return}
+  openModal("Mã QR "+(a.code?a.code+" · ":"")+a.name,`<div style="text-align:center">${svg}<p class="meta" style="word-break:break-all;margin:8px 0 0">${esc(url)}</p></div><p style="margin:0;font-size:13px;color:var(--muted)">Dán tem lên thiết bị. Quét bằng điện thoại để mở hồ sơ và lịch sử bảo trì (cần đăng nhập).</p>`,async()=>{printQR([a]);return false},"In tem");
+}
+
+/* ---------- đối chiếu sao kê ngân hàng ---------- */
+let bankDocs=null;
+async function loadBank(){try{bankDocs=(await api("bank_list")).items}catch(e){bankDocs=[];fail(e)}render()}
+const dayDiff=(a,b)=>Math.round((new Date(a)-new Date(b))/864e5);
+function parseTable(text){
+  const t=text.replace(/^﻿/,""),first=t.split(/\r?\n/).find(l=>l.trim())||"";
+  const delim=first.includes("\t")?"\t":(first.split(";").length>first.split(",").length?";":",");
+  const rows=[];let row=[],cur="",q=false;
+  for(let i=0;i<t.length;i++){const c=t[i];
+    if(q){if(c==='"'){if(t[i+1]==='"'){cur+='"';i++}else q=false}else cur+=c}
+    else if(c==='"')q=true;
+    else if(c===delim){row.push(cur);cur=""}
+    else if(c==="\n"||c==="\r"){if(c==="\r"&&t[i+1]==="\n")i++;row.push(cur);cur="";if(row.some(x=>x.trim()))rows.push(row);row=[]}
+    else cur+=c}
+  row.push(cur);if(row.some(x=>x.trim()))rows.push(row);
+  return rows;
+}
+function parseVN(s){
+  s=String(s||"").replace(/[^\d,.\-()]/g,"").trim();if(!s)return 0;
+  const neg=/^\(.*\)$/.test(s)||s.startsWith("-");s=s.replace(/[()\-]/g,"");
+  const m=s.match(/^(\d{1,3}(?:[.,]\d{3})+)([.,]\d{1,2})?$/);let v;
+  if(m)v=Number(m[1].replace(/[.,]/g,""))+(m[2]?Number("0."+m[2].slice(1)):0);
+  else if(/^\d+[.,]\d{1,2}$/.test(s))v=Number(s.replace(",","."));
+  else v=Number(s.replace(/[.,]/g,""));
+  return isFinite(v)?(neg?-v:v):0;
+}
+function parseDMY(s){
+  s=String(s||"").trim();let m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
+  if(m)return m[3]+"-"+pad(+m[2])+"-"+pad(+m[1]);
+  m=s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
+  return m?m[1]+"-"+pad(+m[2])+"-"+pad(+m[3]):"";
+}
+function detectCols(rows){
+  const norm=x=>String(x||"").toLowerCase();
+  let hi=-1;
+  for(let i=0;i<Math.min(rows.length,20);i++){const r=rows[i].map(norm);if(r.some(c=>/ngày|date/.test(c))&&r.some(c=>/nợ|có|số tiền|debit|credit|amount|rút|gửi/.test(c))){hi=i;break}}
+  const h=hi>=0?rows[hi].map(norm):[];
+  const f=re=>h.findIndex(c=>re.test(c));
+  return{header:hi,date:f(/ngày|date/),desc:f(/diễn giải|nội dung|mô tả|chi tiết|description|remark|narrat/),debit:f(/ghi nợ|nợ|rút|debit|tiền ra|chi/),credit:f(/ghi có|^có|có$|gửi|credit|tiền vào|thu/),amount:f(/số tiền|amount/)};
+}
+function bankUsed(){const u=new Set();(bankDocs||[]).forEach(d=>d.lines.forEach(l=>{if(l.txnId)u.add(l.txnId)}));return u}
+function bankMatch(doc){
+  const used=bankUsed();let n=0;
+  doc.lines.filter(l=>!l.txnId&&!l.ign).forEach(l=>{
+    const type=l.amount>0?"in":"out",amt=Math.abs(l.amount);
+    const c=state.txns.filter(t=>t.fund===doc.fund&&t.type===type&&live(t)&&Math.abs(t.amount-amt)<0.5&&!used.has(t.id)&&Math.abs(dayDiff(t.date,l.date))<=5)
+      .sort((a,b)=>Math.abs(dayDiff(a.date,l.date))-Math.abs(dayDiff(b.date,l.date)));
+    if(c[0]){l.txnId=c[0].id;used.add(c[0].id);n++}});
+  return n;
+}
+async function saveBank(doc){
+  const j=await api("put",{col:"bank",id:doc.month+"-"+doc.fund,data:{month:doc.month,fund:doc.fund,closing:doc.closing,lines:doc.lines}});
+  const d=j.doc,i=bankDocs.findIndex(x=>x.id===d.id);i>=0?bankDocs[i]=d:bankDocs.push(d);
+  return d;
+}
+function bankImport(){
+  openModal("Nhập sao kê ngân hàng",`<div class="fields">
+    ${F("bi-fund","Sao kê của quỹ",`<select id="bi-fund" name="fund">${opt(Object.entries(FUNDS),filt.bank.fund)}</select>`,"full")}
+    ${F("bi-file","Tệp sao kê (.csv hoặc .txt)",`<input id="bi-file" name="file" type="file" accept=".csv,.txt,.tsv,text/csv,text/plain">`,"full")}
+    ${F("bi-text","Hoặc dán nội dung bảng sao kê (copy từ Excel, gồm cả dòng tiêu đề)",`<textarea id="bi-text" name="text" rows="6" placeholder="Ngày&#9;Diễn giải&#9;Ghi nợ&#9;Ghi có"></textarea>`,"full")}
+  </div><p style="margin:0;font-size:13px;color:var(--muted)">Ngân hàng thường cho tải Excel: mở ra, lưu thành CSV hoặc chọn bảng rồi dán vào đây. Bước sau sẽ cho bạn kiểm tra các cột.</p>`,async fd=>{
+    const file=fd.get("file");let text=String(fd.get("text")||"");
+    if(file&&file.size)text=await file.text();
+    const rows=parseTable(text);
+    if(rows.length<2){toast("Chưa đọc được dòng nào. Hãy kiểm tra tệp hoặc nội dung dán.");return false}
+    setTimeout(()=>bankMap(fd.get("fund"),rows),0);
+  },"Tiếp tục");
+}
+function bankMap(fund,rows){
+  const d=detectCols(rows),nc=Math.max(...rows.slice(0,30).map(r=>r.length));
+  const hdr=d.header>=0?rows[d.header]:[];
+  const co=(cur,none)=>`<option value="-1"${cur<0?" selected":""}>${none||"Không có"}</option>`+Array.from({length:nc},(_,i)=>`<option value="${i}"${cur===i?" selected":""}>Cột ${i+1}${hdr[i]?": "+esc(String(hdr[i]).slice(0,28)):""}</option>`).join("");
+  const start=d.header>=0?d.header+1:0,prev=rows.slice(start,start+3);
+  openModal("Chọn cột của sao kê",`<div class="fields">
+    ${F("bm-d","Cột ngày",`<select id="bm-d" name="date">${co(d.date>=0?d.date:0,"Chọn cột")}</select>`)}
+    ${F("bm-x","Cột diễn giải",`<select id="bm-x" name="desc">${co(d.desc>=0?d.desc:1)}</select>`)}
+    ${F("bm-db","Cột ghi nợ (tiền ra)",`<select id="bm-db" name="debit">${co(d.debit)}</select>`)}
+    ${F("bm-cr","Cột ghi có (tiền vào)",`<select id="bm-cr" name="credit">${co(d.credit)}</select>`)}
+    ${F("bm-am","Hoặc một cột Số tiền (âm là chi)",`<select id="bm-am" name="amount">${co(d.debit<0&&d.credit<0?d.amount:-1)}</select>`,"full")}
+  </div><div class="tablewrap"><table style="min-width:0"><tbody>${prev.map(r=>`<tr>${r.slice(0,6).map(c=>`<td>${esc(String(c).slice(0,24))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>
+  <p style="margin:0;font-size:13px;color:var(--muted)">${rows.length-start} dòng dữ liệu. Dùng cặp ghi nợ và ghi có, hoặc một cột số tiền. Các dòng được tách theo tháng, trùng với sao kê đã nhập sẽ được bỏ qua.</p>`,async fd=>{
+    const ix=k=>Number(fd.get(k)),dc=ix("date"),xc=ix("desc"),db=ix("debit"),cr=ix("credit"),am=ix("amount");
+    if(dc<0||(db<0&&cr<0&&am<0)){toast("Hãy chọn cột ngày và cột tiền.");return false}
+    const byMonth={};let bad=0;
+    rows.slice(start).forEach(r=>{
+      const date=parseDMY(r[dc]);if(!date){bad++;return}
+      const amount=am>=0&&db<0&&cr<0?parseVN(r[am]):Math.abs(parseVN(r[cr]))-Math.abs(parseVN(r[db]));
+      if(!amount)return;
+      (byMonth[date.slice(0,7)]=byMonth[date.slice(0,7)]||[]).push({id:"l"+uid()+Math.random().toString(36).slice(2,5),date,desc:xc>=0?String(r[xc]||"").trim().slice(0,120):"",amount,txnId:"",ign:false});
+    });
+    const months=Object.keys(byMonth).sort();
+    if(!months.length){toast("Không đọc được dòng nào có ngày và số tiền. Kiểm tra lại cột đã chọn.");return false}
+    let added=0,matched=0;
+    try{
+      for(const mo of months){
+        const doc=bankDocs.find(x=>x.fund===fund&&x.month===mo)||{month:mo,fund,closing:null,lines:[]};
+        const key=l=>l.date+"|"+l.amount+"|"+l.desc;const have=new Set(doc.lines.map(key));
+        byMonth[mo].forEach(l=>{if(!have.has(key(l))){doc.lines.push(l);have.add(key(l));added++}});
+        doc.lines.sort((a,b)=>a.date.localeCompare(b.date));
+        matched+=bankMatch(doc);await saveBank(doc);
+      }
+    }catch(e){fail(e);return false}
+    filt.bank.fund=fund;filt.bank.month=months[months.length-1];render();
+    toast("Đã nhập "+added+" dòng, tự khớp "+matched+" dòng với sổ.");
+  },"Nhập");
+}
+function vBank(){
+  if(bankDocs===null){loadBank();return '<div class="empty">Đang tải…</div>'}
+  const f=filt.bank,doc=bankDocs.find(d=>d.fund===f.fund&&d.month===f.month);
+  const head=`<div class="head-row"><h2>Đối chiếu sao kê ngân hàng</h2><button class="btn primary" data-act="bank-import">Nhập sao kê</button></div>
+  <div class="filters"><label>Quỹ<select id="bk-f" data-f="bank.fund">${opt(Object.entries(FUNDS),f.fund)}</select></label><label>Tháng<input id="bk-m" type="month" data-f="bank.month" value="${esc(f.month)}"></label></div>`;
+  if(!doc)return head+`<div class="card empty">Chưa có sao kê ${FUNDS[f.fund]} tháng ${esc(f.month.slice(5)+"/"+f.month.slice(0,4))}. Bấm “Nhập sao kê” để tải tệp CSV hoặc dán từ Excel, hệ thống sẽ tự khớp với sổ thu chi.</div>`;
+  const [y,m]=f.month.split("-").map(Number),end=f.month+"-"+pad(new Date(y,m,0).getDate());
+  const open=Number(f.fund==="maint"?state.settings.openMaint:state.settings.openOps)||0;
+  const book=open+sum(state.txns.filter(t=>t.fund===f.fund&&live(t)&&t.date<=end),t=>t.type==="in"?t.amount:-t.amount);
+  const used=bankUsed(),tx=id=>state.txns.find(t=>t.id===id);
+  const unl=doc.lines.filter(l=>!l.txnId&&!l.ign),led=state.txns.filter(t=>t.fund===f.fund&&live(t)&&(t.date||"").slice(0,7)===f.month&&!used.has(t.id));
+  const nu=sum(unl,l=>l.amount),nl=sum(led,t=>t.type==="in"?t.amount:-t.amount);
+  const hasC=doc.closing!==null&&doc.closing!==undefined,diff=hasC?doc.closing-book:null;
+  const sg=n=>(n<0?"−":"+")+money(Math.abs(n));
+  const btn=(a,l,id,c)=>`<button class="btn small ${c||""}" data-act="${a}" data-id="${esc(id)}">${l}</button>`;
+  const lineRow=l=>{const t=l.txnId?tx(l.txnId):null;
+    const st=l.txnId?`<span class="pill good">Khớp</span><span class="meta">${t?esc((t.code||"")+" · "+t.category+(t.status==="pending"?" (chờ duyệt)":"")):"Khoản đã bị xóa"}</span>`:l.ign?'<span class="pill mute">Bỏ qua</span>':'<span class="pill warn">Chưa khớp</span>';
+    const ac=l.txnId?btn("bk-unmatch","Hủy khớp",l.id):l.ign?btn("bk-ign","Khôi phục",l.id):btn("bk-pick","Chọn khoản khớp",l.id)+btn("bk-add","Ghi vào sổ",l.id,"primary")+btn("bk-ign","Bỏ qua",l.id);
+    return `<tr><td class="num">${vdate(l.date)}</td><td>${esc(l.desc)}</td><td class="r num"><b class="${l.amount>0?"in":"outc"}">${sg(l.amount)}</b></td><td>${st}</td><td class="r"><div class="actions" style="justify-content:flex-end">${ac}</div></td></tr>`};
+  return head+`<div class="grid2">
+    <section class="card fund"><div class="label">Số dư cuối tháng theo sổ</div><div class="bal num">${money(book)}</div><div class="sub"><span>Tính đến ${vdate(end)}</span></div></section>
+    <section class="card fund"><div class="label">Số dư cuối tháng theo sao kê</div><div class="bal num">${hasC?money(doc.closing):"chưa nhập"}</div><div class="sub"><span>${hasC?`Chênh lệch so với sổ: <b class="${Math.abs(diff)<0.5?"in":"outc"}">${Math.abs(diff)<0.5?"khớp":sg(diff)}</b>`:""}</span><button class="btn small" data-act="bank-closing">${hasC?"Sửa":"Nhập số dư"}</button></div></section></div>
+  <div class="summary num"><span>${doc.lines.length} dòng sao kê</span><span>Đã khớp: <b>${doc.lines.filter(l=>l.txnId).length}</b></span><span>Chưa khớp: <b class="${unl.length?"outc":""}">${unl.length}</b> (${unl.length?sg(nu):"0"})</span><span>Khoản trong sổ chưa có trên sao kê: <b class="${led.length?"outc":""}">${led.length}</b> (${led.length?sg(nl):"0"})</span></div>
+  <section class="card"><div class="head-row"><h3>Dòng sao kê</h3><div class="actions"><button class="btn small" data-act="bank-rematch">Khớp lại tự động</button><button class="btn small danger" data-act="bank-del">Xóa sao kê tháng này</button></div></div>
+  <div class="tablewrap"><table><thead><tr><th>Ngày</th><th>Diễn giải</th><th class="r">Số tiền</th><th>Trạng thái</th><th></th></tr></thead><tbody>${doc.lines.map(lineRow).join("")}</tbody></table></div></section>
+  <section class="card"><h3 style="margin-bottom:6px">Khoản trong sổ chưa có trên sao kê tháng này</h3>${led.length?`<div class="tablewrap"><table><thead><tr><th>Mã</th><th>Ngày</th><th>Hạng mục</th><th class="r">Số tiền</th></tr></thead><tbody>${led.map(t=>`<tr><td class="num">${esc(t.code||"")}</td><td class="num">${vdate(t.date)}</td><td>${esc(t.category)}${t.party?`<span class="meta">${esc(t.party)}</span>`:""}</td><td class="r num"><b class="${t.type==="in"?"in":"outc"}">${sg(t.type==="in"?t.amount:-t.amount)}</b></td></tr>`).join("")}</tbody></table></div><p class="meta">Thường là khoản đã ghi sổ nhưng ngân hàng chưa ghi nhận (séc, chuyển khoản cuối tháng) hoặc ghi nhầm. Kiểm tra từng khoản.</p>`:'<div class="empty">Mọi khoản trong sổ tháng này đều đã khớp.</div>'}</section>`;
+}
+function bankCurDoc(){const f=filt.bank;return bankDocs.find(d=>d.fund===f.fund&&d.month===f.month)}
+async function bankLineSave(doc,msg){try{await saveBank(doc);render();if(msg)toast(msg)}catch(e){fail(e)}}
+function bankPick(l){
+  const doc=bankCurDoc(),type=l.amount>0?"in":"out",used=bankUsed();
+  const c=state.txns.filter(t=>t.fund===doc.fund&&t.type===type&&!t.voided&&!used.has(t.id)).sort((a,b)=>Math.abs(dayDiff(a.date,l.date))-Math.abs(dayDiff(b.date,l.date))).slice(0,60);
+  if(!c.length){toast("Không có khoản "+(type==="in"?"thu":"chi")+" nào trong sổ còn trống để khớp.");return}
+  openModal("Chọn khoản trong sổ",`<p style="margin:0">${vdate(l.date)} · ${esc(l.desc)} · <b>${money(Math.abs(l.amount))}</b></p><div class="fields">${F("bp-t","Khoản trong sổ",`<select id="bp-t" name="t">${opt(c.map(t=>[t.id,(t.code||"")+" · "+vdate(t.date)+" · "+t.category+" · "+money(t.amount)+(t.status==="pending"?" (chờ duyệt)":"")]),"")}</select>`,"full")}</div>`,async fd=>{
+    const x=doc.lines.find(z=>z.id===l.id);x.txnId=fd.get("t");x.ign=false;await bankLineSave(doc);
+  },"Khớp");
+}
+function bankAdd(l){
+  const doc=bankCurDoc(),type=l.amount>0?"in":"out";
+  openModal("Ghi dòng sao kê vào sổ",`<p style="margin:0">${vdate(l.date)} · ${esc(l.desc)} · <b>${money(Math.abs(l.amount))}</b> (${type==="in"?"khoản thu":"khoản chi"}, ${FUNDS[doc.fund]})</p><div class="fields">
+    ${F("ba-c","Hạng mục",`<select id="ba-c" name="category">${opt(CATS[type],"")}</select>`,"full")}
+    ${F("ba-p","Đối tượng (người nộp, nhà cung cấp)",`<input id="ba-p" name="party" maxlength="120">`,"full")}
+    ${F("ba-n","Ghi chú",`<textarea id="ba-n" name="note" maxlength="500">${esc(l.desc)}</textarea>`,"full")}</div>`,async fd=>{
+    const id="bk"+uid();
+    if(!await put("txns",id,{date:l.date,fund:doc.fund,type,amount:Math.abs(l.amount),category:fd.get("category"),party:fd.get("party").trim(),note:fd.get("note").trim()}))return false;
+    const x=doc.lines.find(z=>z.id===l.id);x.txnId=id;x.ign=false;await bankLineSave(doc,"Đã ghi vào sổ và khớp với dòng sao kê.");
+  },"Ghi vào sổ");
+}
+
 /* ---------- thu chi ---------- */
 function txnFiltered(){
   const f=filt.txn,q=f.q.trim().toLowerCase();
@@ -627,14 +878,14 @@ function vAssets(){
   const rows=state.assets.filter(a=>(!f.kind||a.kind===f.kind)&&(!q||[a.code,a.name,a.location].join(" ").toLowerCase().includes(q))).map(a=>({a,i:assetInfo(a)})).sort((x,y)=>(x.a.code||"").localeCompare(y.a.code||""));
   const cnt=k=>state.assets.map(assetInfo).filter(i=>i.key===k).length;
   return `<div class="head-row"><h2>Tài sản, thiết bị, máy móc, xe</h2><button class="btn primary" data-act="add-asset">+ Thêm tài sản</button></div>
-  <div class="summary num"><span>${state.assets.length} tài sản</span><span>Quá hạn bảo trì: <b class="${cnt("over")?"outc":""}">${cnt("over")}</b></span><span>Sắp đến hạn: <b>${cnt("soon")}</b></span><span>Tổng giá trị: <b>${money(sum(state.assets,a=>Number(a.value)||0))}</b></span></div>
+  <div class="summary num"><span>${state.assets.length} tài sản</span><span>Quá hạn bảo trì: <b class="${cnt("over")?"outc":""}">${cnt("over")}</b></span><span>Sắp đến hạn: <b>${cnt("soon")}</b></span><span>Tổng giá trị: <b>${money(sum(state.assets,a=>Number(a.value)||0))}</b></span>${state.assets.length?'<button class="btn small" data-act="qr-all">In tem QR tất cả</button>':""}</div>
   <div class="filters"><label>Loại<select id="fa-kind" data-f="asset.kind">${opt(KINDS,f.kind,"Tất cả")}</select></label><label>Tìm kiếm<input id="fa-q" type="search" data-f="asset.q" data-live="1" value="${esc(f.q)}" placeholder="Mã, tên, vị trí"></label></div>
   ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Mã</th><th>Tài sản</th><th>Tình trạng</th><th>Bảo trì gần nhất</th><th>Các mốc hạn</th><th class="r">Chi phí bảo trì</th><th></th></tr></thead><tbody>${rows.map(({a,i})=>{
     const n=fileCount("assets",a.id);
     const maintCell=i.due?`<span class="meta">Bảo trì ${vdate(i.due)} <span class="pill ${i.cls}">${esc(i.label)}</span></span>`:`<span class="meta"><span class="pill ${i.cls}">${esc(i.label)}</span></span>`;
     const insCell=i.insDue?`<span class="meta">Kiểm định ${vdate(i.insDue)} <span class="pill ${i.ins.cls}">${esc(i.ins.label)}</span></span>`:"";
     const warCell=a.warrantyEnd?`<span class="meta">Bảo hành đến ${vdate(a.warrantyEnd)} ${i.war&&i.war.days<0?'<span class="pill mute">Đã hết</span>':i.war&&i.war.days<=60?`<span class="pill ${i.war.cls}">${esc(i.war.label)}</span>`:""}</span>`:"";
-    return `<tr><td class="num">${esc(a.code||"")}</td><td><strong>${esc(a.name)}</strong><span class="meta">${esc(a.kind)}${a.location?" · "+esc(a.location):""}${a.value?" · "+money(a.value):""}</span></td><td><span class="pill ${a.status==="Tốt"?"good":a.status==="Hỏng"?"bad":a.status==="Cần theo dõi"?"warn":"mute"}">${esc(a.status||"Tốt")}</span></td><td class="num">${i.last?vdate(i.last):'<span class="meta">Chưa có</span>'}</td><td>${maintCell}${insCell}${warCell}</td><td class="r num">${money(i.total)}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="add-maint" data-id="${esc(a.id)}">Ghi bảo trì</button><button class="btn small" data-act="asset-detail" data-id="${esc(a.id)}">Hồ sơ${n?" ("+n+")":""}</button><button class="btn small" data-act="edit-asset" data-id="${esc(a.id)}">Sửa</button><button class="btn small danger" data-act="del-asset" data-id="${esc(a.id)}">Xóa</button></div></td></tr>`}).join("")}</tbody></table></div>`:`<div class="card empty">${state.assets.length?"Không có tài sản nào khớp bộ lọc.":"Chưa có tài sản. Bấm “Thêm tài sản” để bắt đầu."}</div>`}`;
+    return `<tr><td class="num">${esc(a.code||"")}</td><td><strong>${esc(a.name)}</strong><span class="meta">${esc(a.kind)}${a.location?" · "+esc(a.location):""}${a.value?" · "+money(a.value):""}</span></td><td><span class="pill ${a.status==="Tốt"?"good":a.status==="Hỏng"?"bad":a.status==="Cần theo dõi"?"warn":"mute"}">${esc(a.status||"Tốt")}</span></td><td class="num">${i.last?vdate(i.last):'<span class="meta">Chưa có</span>'}</td><td>${maintCell}${insCell}${warCell}</td><td class="r num">${money(i.total)}</td><td class="r"><div class="actions" style="justify-content:flex-end"><button class="btn small" data-act="add-maint" data-id="${esc(a.id)}">Ghi bảo trì</button><button class="btn small" data-act="asset-qr" data-id="${esc(a.id)}">QR</button><button class="btn small" data-act="asset-detail" data-id="${esc(a.id)}">Hồ sơ${n?" ("+n+")":""}</button><button class="btn small" data-act="edit-asset" data-id="${esc(a.id)}">Sửa</button><button class="btn small danger" data-act="del-asset" data-id="${esc(a.id)}">Xóa</button></div></td></tr>`}).join("")}</tbody></table></div>`:`<div class="card empty">${state.assets.length?"Không có tài sản nào khớp bộ lọc.":"Chưa có tài sản. Bấm “Thêm tài sản” để bắt đầu."}</div>`}`;
 }
 
 /* ---------- bảo trì ---------- */
@@ -1458,6 +1709,16 @@ document.addEventListener("click",async e=>{
     }catch(err){fail(err)}
   }
   else if(act==="asset-detail")assetDetail(id);
+  else if(act==="asset-qr"){const a=assetById(id);if(a)qrModal(a)}
+  else if(act==="qr-all")printQR(state.assets)
+  else if(act==="bank-import")bankImport();
+  else if(act==="bank-closing"){const d=bankCurDoc();openModal("Số dư cuối tháng theo sao kê",`<div class="fields">${F("bc-v","Số dư cuối tháng (₫)",`<input id="bc-v" name="v" inputmode="decimal" value="${d.closing!=null?d.closing:""}" placeholder="vd: 125.400.000">`,"full")}</div>`,async fd=>{const v=String(fd.get("v")||"").trim();d.closing=v===""?null:parseVN(v);await bankLineSave(d)},"Lưu")}
+  else if(act==="bank-rematch"){const d=bankCurDoc(),n=bankMatch(d);await bankLineSave(d,n?"Đã khớp thêm "+n+" dòng.":"Không có dòng nào khớp thêm.")}
+  else if(act==="bank-del"){const d=bankCurDoc();confirmBox("Xóa sao kê?","Xóa toàn bộ sao kê tháng này? Các khoản trong sổ thu chi không bị ảnh hưởng.","Xóa",async()=>{try{await api("del",{col:"bank",id:d.month+"-"+d.fund});bankDocs=bankDocs.filter(x=>x!==d);render()}catch(e){fail(e)}})}
+  else if(act==="bk-unmatch"){const d=bankCurDoc(),l=d.lines.find(x=>x.id===id);l.txnId="";await bankLineSave(d)}
+  else if(act==="bk-ign"){const d=bankCurDoc(),l=d.lines.find(x=>x.id===id);l.ign=!l.ign;await bankLineSave(d)}
+  else if(act==="bk-pick")bankPick(bankCurDoc().lines.find(x=>x.id===id));
+  else if(act==="bk-add")bankAdd(bankCurDoc().lines.find(x=>x.id===id));
   else if(act==="add-notice")noticeForm(null,b.dataset.mode);
   else if(act==="notice-files")filesModal("notices",id);
   else if(act==="edit-notice")noticeForm(state.notices.find(n=>n.id===id));
@@ -1495,7 +1756,7 @@ document.addEventListener("click",async e=>{
     confirmBox(off?"Tắt mật khẩu chung?":"Bật lại mật khẩu chung?",off?"Sau khi tắt, Ban quản trị chỉ đăng nhập bằng tài khoản riêng. Người đang dùng mật khẩu chung vẫn làm việc được đến khi đăng xuất.":"Mật khẩu chung của Ban quản trị sẽ đăng nhập được trở lại.","Đồng ý",async()=>{try{await api("legacy_off",{off});state.meta.legacyOff=off;render()}catch(err){fail(err);return false}});
   }
   else if(act==="reload"){loadErr=false;render();try{await loadAll()}catch(e){loadErr=true}render()}
-  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;grps=null;rules=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
+  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;bankDocs=null;users=null;grps=null;rules=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
   else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(err){fail(err)}})}
   else if(act==="task-new")taskForm(null,{assetId:b.dataset.asset,kind:b.dataset.kind,due:b.dataset.due,title:b.dataset.asset?((b.dataset.kind==="Kiểm định"?"Kiểm định ":"Bảo trì ")+((assetById(b.dataset.asset)||{}).name||"")):""});
   else if(act==="task-edit")taskForm(state.tasks.find(t=>t.id===id));

@@ -55,7 +55,8 @@ nav.tabs button{background:none;border:0;border-bottom:3px solid transparent;pad
 nav.tabs button[aria-current="page"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
 nav.tabs button:hover{color:var(--ink)}
 main{padding:20px 0 56px;display:flex;flex-direction:column;gap:20px}
-.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:500;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:500;white-space:nowrap;max-width:100%}
+@media(max-width:600px){.btn{white-space:normal;text-align:left}}
 .btn:hover{border-color:var(--accent)}
 .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
 .btn.primary:hover{filter:brightness(1.07)}

@@ -218,7 +218,7 @@ function opt(list,sel,all){return (all?`<option value="">${all}</option>`:"")+li
 
 /* ---------- dữ liệu và kết nối ---------- */
 let state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};
-let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={}, facs=null, books=null;
+let loadErr=false; let me=null, ready=false, loaded=0, fb=null, users=null, audit=null, units=null, vehs=null, polls=null, ballots={}, facs=null, books=null;
 let filt={
   notice:{type:"",org:""},
   unit:{q:""},
@@ -386,7 +386,7 @@ function render(){
   const v=$("#view");
   if(!ready){v.innerHTML='<div class="empty">Đang tải…</div>';return}
   if(!me){v.innerHTML=vLogin();return}
-  if(loaded<3){v.innerHTML='<div class="empty">Đang tải dữ liệu…</div>';return}
+  if(loaded<3){v.innerHTML=loadErr?'<div class="empty">Chưa tải được dữ liệu từ máy chủ.<br><button class="btn" data-act="reload" style="margin-top:10px">Tải lại</button></div>':'<div class="empty">Đang tải dữ liệu…</div>';return}
   let html="";
   if(hasSample()&&adm)html+='<div class="banner info"><span>Đang hiển thị dữ liệu mẫu để bạn xem thử cách dùng.</span><button class="btn small" data-act="clear-sample">Xóa dữ liệu mẫu</button></div>';
   html+=({"tong-quan":vOverview,"thong-bao":vNotices,"can-ho":vUnits,"gui-xe":vVehicles,"bieu-quyet":vPolls,"tien-ich":vFacilities,"thu-chi":vTxns,"nha-thau":vVendors,"tai-san":vAssets,"bao-tri":vMaint,"bao-cao":vReport,"gop-y":vFeedback,"nhat-ky":vAuditTab,"quan-tri":vAdmin})[tab]();
@@ -1292,6 +1292,7 @@ document.addEventListener("click",async e=>{
     const off=!state.meta.legacyOff;
     confirmBox(off?"Tắt mật khẩu chung?":"Bật lại mật khẩu chung?",off?"Sau khi tắt, Ban quản trị chỉ đăng nhập bằng tài khoản riêng. Người đang dùng mật khẩu chung vẫn làm việc được đến khi đăng xuất.":"Mật khẩu chung của Ban quản trị sẽ đăng nhập được trở lại.","Đồng ý",async()=>{try{await api("legacy_off",{off});state.meta.legacyOff=off;render()}catch(err){fail(err);return false}});
   }
+  else if(act==="reload"){loadErr=false;render();try{await loadAll()}catch(e){loadErr=true}render()}
   else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;users=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
   else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(err){fail(err)}})}
   else if(act==="goto-pending"){filt.txn.status="pending";location.hash="thu-chi";render()}
@@ -1342,7 +1343,7 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)refresh()}
 setInterval(refresh,30000);
 (async()=>{
   render();
-  try{const j=await api("me");me=j.role?j:null;if(me&&!me.mustChange)await loadAll()}catch(e){me=null}
+  try{const j=await api("me");me=j.role?j:null;if(me&&!me.mustChange){try{await loadAll()}catch(e){if(e.status===401)me=null;else loadErr=true}}}catch(e){me=null}
   ready=true;render();if(me&&me.mustChange)forcePw();
 })();
 </script>

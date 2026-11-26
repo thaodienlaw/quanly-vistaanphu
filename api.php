@@ -424,9 +424,20 @@ switch ($a) {
         $res['files'] = $pdo->query('SELECT id, name, mime, size, ref_col AS col, ref_id AS ref, ts FROM files ORDER BY ts')->fetchAll(PDO::FETCH_ASSOC);
         if (!can($role, 'seeall')) $res['files'] = array_values(array_filter($res['files'], fn($f) => $f['col'] !== 'vendors'));
         $res['meta'] = ['lastExport' => metaGet($pdo, 'last_export'), 'legacyOff' => metaGet($pdo, 'legacy_off') === '1'];
+        // Trả dữ liệu trước, việc nền (sao lưu, gửi mail nhắc) làm sau để trang không phải chờ.
+        $canRemind = can($role, 'manage');
+        http_response_code(200);
+        $json = json_encode($res, JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        header('Content-Length: ' . strlen($json));
+        header('Connection: close');
+        echo $json;
+        session_write_close();
+        if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+        else { @ob_end_flush(); @flush(); }
+        ignore_user_abort(true);
         try { dailyBackup($pdo, $dir); } catch (Throwable $e) {}
-        if (can($role, 'manage')) { try { maybeRemind($pdo); } catch (Throwable $e) {} }
-        out(200, $res);
+        if ($canRemind) { try { maybeRemind($pdo); } catch (Throwable $e) {} }
+        exit;
     }
 
     case 'put': {

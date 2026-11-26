@@ -102,3 +102,24 @@ Quyền "Hiện menu Căn hộ, Gửi xe, Biểu quyết, Tiện ích" chỉ ẩ
 3. Nhập số dư cuối tháng trên sao kê để xem chênh lệch với số dư theo sổ. Danh sách “khoản trong sổ chưa có trên sao kê” giúp tìm séc chưa qua ngân hàng hoặc khoản ghi nhầm.
 
 Sao kê nhập lại nhiều lần không bị trùng dòng. Sao kê lưu theo quỹ và tháng, ghi nhật ký thao tác, tối đa 500 dòng mỗi tháng.
+
+## Nối cổng bãi xe (camera nhận diện biển số và barie)
+
+Hệ thống không tự điều khiển barie. Thiết bị ở cổng (do nhà thầu lắp: camera nhận diện biển số, bộ điều khiển, relay) quyết định mở barie dựa trên bản danh sách đã tải về, và đẩy nhật ký ra vào về app. Nhờ vậy mất mạng hay máy chủ chậm thì cổng vẫn chạy.
+
+**Bật:** Quản trị, mục “Cổng bãi xe”, bấm “Tạo khóa”. Khóa chỉ hiện một lần; đưa cho nhà thầu. Đổi khóa thì khóa cũ hết hiệu lực ngay; “Tắt” để ngắt kết nối. Thiết bị dùng khóa riêng, không dùng tài khoản người.
+
+**Tài liệu cho nhà thầu** (gửi khóa trong tiêu đề HTTP `X-Gate-Key`; địa chỉ gốc `https://quanly.vistaanphu.com/api.php`):
+
+| Việc | Yêu cầu |
+|---|---|
+| Tải danh sách xe được phép vào | `GET ?a=gate_list` (JSON) hoặc `GET ?a=gate_list&format=csv` |
+| Hỏi nhanh một biển số | `GET ?a=gate_check&plate=59A112345` trả về `allow`, `type`, `unit` |
+| Đẩy nhật ký ra vào | `POST ?a=gate_log` với JSON `{"events":[{"ts":1795695570,"lane":"XM","dir":"in","plate":"59A1-123.45","result":"allow"}]}` |
+
+- Danh sách chỉ gồm xe có trạng thái “Đã duyệt” và có biển số (xe đạp không tính). Mỗi xe có `key` là biển số đã chuẩn hóa (chữ hoa, bỏ dấu chấm, gạch, khoảng trắng): thiết bị nên chuẩn hóa biển đọc được theo cùng cách rồi so khớp với `key`. Có trường `type` (Xe máy hoặc Ô tô) để làn xe máy và làn ô tô chỉ nhận đúng loại xe.
+- Nên tải lại danh sách định kỳ (ví dụ 5 phút một lần) và lưu cục bộ để dùng khi mất mạng.
+- `dir`: `in` hoặc `out`. `result`: `allow` (cho vào), `deny` (từ chối), `manual` (bảo vệ mở tay). `lane` là tên làn tùy đặt, ví dụ `XM`, `OT1`, `OT2`. Mỗi lần gửi tối đa 100 dòng. Biển không đọc được thì để trống.
+- Ban quản lý xem nhật ký ở tab Gửi xe, mục “Nhật ký ra vào cổng”, lọc theo ngày, biển số, kết quả. Nhật ký tự xóa sau số ngày cài trong Quản trị (mặc định 90 ngày).
+- Cư dân duyệt xe nào thì xe đó mới vào được: đăng ký mới ở trạng thái “Chờ duyệt” sẽ không có trong danh sách cho tới khi Ban quản lý duyệt, và xe “Ngừng” sẽ bị loại ở lần tải kế tiếp.
+- Biển số và giờ ra vào là dữ liệu cá nhân: cần thông báo cho cư dân trước khi bật và chỉ giữ nhật ký đủ thời gian cần thiết.

@@ -229,6 +229,7 @@ let filt={
   unit:{q:""},
   vendor:{q:""},
   veh:{status:"",type:"",q:""},
+  gate:{date:"",q:"",result:""},
   txn:{fund:"",type:"",month:"",q:"",status:""},
   asset:{kind:"",q:""},
   maint:{asset:""},
@@ -305,7 +306,7 @@ async function loadAll(){
 async function loadFb(){try{fb=(await api("feedback_list")).items;render()}catch(e){fb=[];fail(e)}}
 let bks=[];
 async function loadAdmin(){
-  try{if(isAdm()){const [u,a,b,g]=await Promise.all([api("users_list"),api("audit_list"),api("backup_list"),api("groups_list")]);users=u.items;audit=a.items;bks=b.items;grps=g.items;rules=g.rules}else{users=[];audit=(await api("audit_list")).items}}
+  try{if(isAdm()){const [u,a,b,g]=await Promise.all([api("users_list"),api("audit_list"),api("backup_list"),api("groups_list")]);users=u.items;audit=a.items;bks=b.items;grps=g.items;rules=g.rules;try{gateInfo=await api("gate_info")}catch(e){gateInfo=null}}else{users=[];audit=(await api("audit_list")).items}}
   catch(e){users=users||[];audit=audit||[];grps=grps||[];rules=rules||{};fail(e)}
   render();
 }
@@ -689,7 +690,7 @@ function qrModal(a){
 }
 
 /* ---------- đối chiếu sao kê ngân hàng ---------- */
-let bankDocs=null;
+let bankDocs=null,gateLog=null,gateInfo=null;
 async function loadBank(){try{bankDocs=(await api("bank_list")).items}catch(e){bankDocs=[];fail(e)}render()}
 const dayDiff=(a,b)=>Math.round((new Date(a)-new Date(b))/864e5);
 function parseTable(text){
@@ -1136,7 +1137,30 @@ function vVehicles(){
   <div class="banner info">${ed?"Biển số và tên chủ xe chỉ Ban quản trị, Ban quản lý thấy. Mỗi cư dân chỉ thấy xe của căn mình.":"Xe bạn đăng ký sẽ chờ Ban quản lý duyệt. Bạn xóa được xe đang chờ duyệt."}</div>
   ${ed?`<div class="summary num"><span>${vehs.length} xe</span><span>Đã duyệt: <b>${vehs.filter(v=>v.status==="Đã duyệt").length}</b></span><span>Chờ duyệt: <b>${pend}</b></span><span>Ô tô: <b>${vehs.filter(v=>v.type==="Ô tô"&&v.status==="Đã duyệt").length}</b></span><span>Xe máy: <b>${vehs.filter(v=>v.type==="Xe máy"&&v.status==="Đã duyệt").length}</b></span></div>
   <div class="filters"><label>Trạng thái<select id="fv-st" data-f="veh.status">${opt(VSTAT,f.status,"Tất cả")}</select></label><label>Loại xe<select id="fv-ty" data-f="veh.type">${opt(VTYPES,f.type,"Tất cả")}</select></label><label>Tìm kiếm<input id="fv-q" type="search" data-f="veh.q" data-live="1" value="${esc(f.q||"")}" placeholder="Căn hộ, biển số, chủ xe"></label></div>`:""}
-  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Căn hộ</th><th>Loại</th><th>Biển số</th><th>Chủ xe</th><th>Trạng thái</th><th></th></tr></thead><tbody>${rows.map(v=>`<tr><td><strong>${esc(v.unit)}</strong></td><td>${esc(v.type)}</td><td class="num">${esc(v.plate==="XE-DAP"?"":v.plate)}</td><td>${esc(v.owner||"")}${v.note?`<span class="meta">${esc(v.note)}</span>`:""}</td><td><span class="pill ${cls(v.status)}">${esc(v.status)}</span></td><td class="r"><div class="actions" style="justify-content:flex-end">${ed?`${v.status!=="Đã duyệt"?`<button class="btn small primary" data-act="veh-status" data-id="${esc(v.id)}" data-st="Đã duyệt">Duyệt</button>`:""}${v.status==="Chờ duyệt"?`<button class="btn small" data-act="veh-status" data-id="${esc(v.id)}" data-st="Từ chối">Từ chối</button>`:""}${v.status==="Đã duyệt"?`<button class="btn small" data-act="veh-status" data-id="${esc(v.id)}" data-st="Ngừng">Ngừng</button>`:""}<button class="btn small" data-act="veh-edit" data-id="${esc(v.id)}">Sửa</button>`:""}${ed||v.status==="Chờ duyệt"?`<button class="btn small danger" data-act="veh-remove" data-id="${esc(v.id)}">Xóa</button>`:""}</div></td></tr>`).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có xe nào được đăng ký.</div>'}`;
+  ${rows.length?`<div class="tablewrap"><table><thead><tr><th>Căn hộ</th><th>Loại</th><th>Biển số</th><th>Chủ xe</th><th>Trạng thái</th><th></th></tr></thead><tbody>${rows.map(v=>`<tr><td><strong>${esc(v.unit)}</strong></td><td>${esc(v.type)}</td><td class="num">${esc(v.plate==="XE-DAP"?"":v.plate)}</td><td>${esc(v.owner||"")}${v.note?`<span class="meta">${esc(v.note)}</span>`:""}</td><td><span class="pill ${cls(v.status)}">${esc(v.status)}</span></td><td class="r"><div class="actions" style="justify-content:flex-end">${ed?`${v.status!=="Đã duyệt"?`<button class="btn small primary" data-act="veh-status" data-id="${esc(v.id)}" data-st="Đã duyệt">Duyệt</button>`:""}${v.status==="Chờ duyệt"?`<button class="btn small" data-act="veh-status" data-id="${esc(v.id)}" data-st="Từ chối">Từ chối</button>`:""}${v.status==="Đã duyệt"?`<button class="btn small" data-act="veh-status" data-id="${esc(v.id)}" data-st="Ngừng">Ngừng</button>`:""}<button class="btn small" data-act="veh-edit" data-id="${esc(v.id)}">Sửa</button>`:""}${ed||v.status==="Chờ duyệt"?`<button class="btn small danger" data-act="veh-remove" data-id="${esc(v.id)}">Xóa</button>`:""}</div></td></tr>`).join("")}</tbody></table></div>`:'<div class="card empty">Chưa có xe nào được đăng ký.</div>'}${ed?gateLogCard():""}`;
+}
+const GRES={allow:["good","Cho vào"],deny:["bad","Từ chối"],manual:["warn","Mở tay"]};
+function gateLogCard(){
+  const f=filt.gate;
+  const bar=`<div class="filters"><label>Ngày<input id="gl-d" type="date" value="${esc(f.date)}"></label><label>Biển số<input id="gl-q" type="search" value="${esc(f.q)}" placeholder="vd: 59A112345"></label><label>Kết quả<select id="gl-r">${opt([["allow","Cho vào"],["deny","Từ chối"],["manual","Mở tay"]],f.result,"Tất cả")}</select></label><button class="btn small" data-act="gate-load">${gateLog?"Tải lại":"Xem nhật ký"}</button></div>`;
+  const rows=gateLog?(gateLog.items.length?`<div class="tablewrap"><table><thead><tr><th>Giờ</th><th>Làn</th><th>Hướng</th><th>Biển số</th><th>Căn hộ</th><th>Kết quả</th></tr></thead><tbody>${gateLog.items.map(e=>`<tr><td class="num">${esc(vtime(e.ts))}</td><td>${esc(e.lane||"")}</td><td>${e.dir==="out"?"Ra":"Vào"}</td><td class="num">${esc(e.plate==="?"?"Không đọc được":e.plate)}</td><td>${esc(e.unit||"")}${e.vtype?`<span class="meta">${esc(e.vtype)}</span>`:""}</td><td><span class="pill ${GRES[e.result][0]}">${GRES[e.result][1]}</span></td></tr>`).join("")}</tbody></table></div><p class="meta">Hiện tối đa 300 dòng mới nhất. Nhật ký được giữ ${gateLog.keepDays} ngày.</p>`:'<div class="empty">Không có lượt ra vào nào khớp bộ lọc.</div>'):'<div class="empty">Bấm “Xem nhật ký” để tải các lượt ra vào do thiết bị ở cổng gửi về. Phần này chỉ hiện khi đã nối thiết bị (Quản trị, mục Cổng bãi xe).</div>';
+  return `<section class="card" style="margin-top:16px"><h3 style="margin-bottom:6px">Nhật ký ra vào cổng</h3>${bar}${rows}</section>`;
+}
+async function gateRefresh(){try{gateInfo=await api("gate_info")}catch(e){}}
+async function loadGate(){
+  const f=filt.gate;f.date=$("#gl-d").value;f.q=$("#gl-q").value.trim();f.result=$("#gl-r").value;
+  try{gateLog=await api("gate_events&date="+encodeURIComponent(f.date)+"&plate="+encodeURIComponent(f.q)+"&result="+encodeURIComponent(f.result))}catch(e){fail(e)}
+  render();
+}
+async function gateKeyNew(){
+  try{
+    const j=await api("gate_key_new",{});await gateRefresh();
+    const base=location.origin+location.pathname.replace(/[^\/]*$/,"")+"api.php";
+    openModal("Khóa cổng bãi xe",`<p style="margin:0">Sao chép khóa này đưa cho nhà thầu hoặc kỹ thuật viên lắp đặt. Khóa chỉ hiện <b>một lần</b>; mất khóa thì tạo khóa mới, khóa cũ sẽ hết hiệu lực.</p>
+    <div class="fields">${F("gk-k","Khóa",`<input id="gk-k" readonly value="${esc(j.key)}" onclick="this.select()">`,"full")}</div>
+    <p class="meta" style="word-break:break-all;margin:0">Gửi khóa trong tiêu đề <b>X-Gate-Key</b>.<br>Danh sách xe: GET ${esc(base)}?a=gate_list (thêm &amp;format=csv nếu cần CSV).<br>Nhật ký: POST ${esc(base)}?a=gate_log.</p>`,async()=>{try{await navigator.clipboard.writeText(j.key);toast("Đã sao chép khóa.")}catch(e){toast("Hãy chọn khóa rồi sao chép thủ công.")}return false},"Sao chép khóa");
+    render();
+  }catch(e){fail(e)}
 }
 function vehForm(v){
   const ed=isEd();
@@ -1307,6 +1331,8 @@ function vAdmin(){
   <div class="actions" style="margin-top:12px"><button class="btn" data-act="viewer-pw">Đổi mật khẩu cư dân (chỉ xem)</button>
   <button class="btn" data-act="legacy-toggle">${state.meta.legacyOff?"Bật lại":"Tắt"} đăng nhập bằng mật khẩu chung của Ban quản trị</button></div>
   ${state.meta.legacyOff?'<p class="meta" style="margin:8px 0 0">Mật khẩu chung của Ban quản trị đang tắt: chỉ tài khoản riêng đăng nhập được.</p>':(admins<1?'<p class="meta" style="margin:8px 0 0">Tạo ít nhất một tài khoản Trưởng ban rồi mới tắt được mật khẩu chung.</p>':"")}</section>
+  <section class="card"><div class="head-row"><h3>Cổng bãi xe</h3><div class="actions"><button class="btn small primary" data-act="gate-key-new">${gateInfo&&gateInfo.on?"Đổi khóa":"Tạo khóa"}</button>${gateInfo&&gateInfo.on?'<button class="btn small danger" data-act="gate-key-off">Tắt</button>':""}<button class="btn small" data-act="gate-cfg">Thời gian lưu</button></div></div>
+  ${gateInfo?`<p class="meta" style="margin:6px 0 0">${gateInfo.on?"Đã bật khóa cho thiết bị cổng. "+(gateInfo.seen?"Thiết bị kết nối gần nhất: "+esc(vtime(gateInfo.seen))+".":"Chưa có thiết bị nào kết nối."):"Chưa bật. Tạo khóa để nhà thầu nối camera nhận diện biển số và barie."} Danh sách được phép vào hiện có ${gateInfo.vehicles} xe (đã duyệt, có biển số). Nhật ký ra vào lưu ${gateInfo.keepDays} ngày.</p>`:'<div class="empty">Đang tải…</div>'}</section>
   <section class="card"><div class="head-row"><h3>Quy tắc mã</h3><div class="actions"><button class="btn small" data-act="codes-backfill">Đánh mã bù</button><button class="btn small primary" data-act="rules-edit">Sửa quy tắc</button></div></div>
   <p class="meta" style="margin:6px 0 10px">Mã do hệ thống tự cấp, không sửa tay, để tìm hồ sơ nhanh và thống nhất. Đổi quy tắc chỉ áp dụng cho hồ sơ tạo từ sau đó, mã đã cấp giữ nguyên. “Đánh mã bù” cấp mã cho hồ sơ cũ còn thiếu.</p>
   ${rules&&Object.keys(rules).length?`<div class="tablewrap"><table><thead><tr><th>Đối tượng</th><th>Mẫu mã</th><th>Ví dụ</th></tr></thead><tbody>${Object.values(rules).map(r=>`<tr><td>${esc(r.label)}</td><td class="num">${esc(ruleSample(r,false))}</td><td class="num"><strong>${esc(ruleSample(r,true))}</strong></td></tr>`).join("")}</tbody></table></div>`:""}</section>
@@ -1747,6 +1773,10 @@ document.addEventListener("click",async e=>{
   else if(act==="group-edit")groupForm(grps.find(g=>g.id===id));
   else if(act==="group-del"){const g=grps.find(x=>x.id===id);confirmBox("Xóa nhóm?",`Xóa nhóm “${esc(g.name)}” (${esc(g.code)})? Chỉ xóa được khi không còn ai trong nhóm.`,"Xóa",async()=>{try{await api("group_del",{id});grps=null;render()}catch(e){fail(e)}})}
   else if(act==="rules-edit")rulesForm();
+  else if(act==="gate-load")loadGate();
+  else if(act==="gate-key-new"){if(gateInfo&&gateInfo.on)confirmBox("Đổi khóa cổng?","Khóa cũ sẽ hết hiệu lực ngay. Thiết bị ở cổng phải được cập nhật khóa mới, nếu không sẽ không tải được danh sách xe.","Đổi khóa",()=>{setTimeout(gateKeyNew,0)});else gateKeyNew()}
+  else if(act==="gate-key-off")confirmBox("Tắt khóa cổng?","Thiết bị cổng sẽ không tải được danh sách và không gửi được nhật ký cho tới khi tạo khóa mới.","Tắt",async()=>{try{await api("gate_key_off",{});await gateRefresh();render()}catch(e){fail(e)}});
+  else if(act==="gate-cfg")openModal("Thời gian lưu nhật ký ra vào",`<div class="fields">${F("gc-d","Số ngày lưu (7 đến 365)",`<input id="gc-d" name="d" type="number" min="7" max="365" value="${gateInfo?gateInfo.keepDays:90}" required>`,"full")}</div><p style="margin:0;font-size:13px;color:var(--muted)">Biển số và giờ ra vào là dữ liệu cá nhân. Chỉ giữ đủ thời gian cần thiết và đã thông báo cho cư dân.</p>`,async fd=>{try{await api("gate_cfg",{keepDays:Number(fd.get("d"))});await gateRefresh();gateLog=null;render()}catch(e){fail(e);return false}},"Lưu");
   else if(act==="codes-backfill"){try{const j=await api("codes_backfill",{});toast(j.count?"Đã đánh mã cho "+j.count+" hồ sơ.":"Mọi hồ sơ đều đã có mã.");await loadAll();render()}catch(e){fail(e)}}
   else if(act==="user-add")userForm();
   else if(act==="user-edit")userForm(users.find(u=>u.id===id));
@@ -1756,7 +1786,7 @@ document.addEventListener("click",async e=>{
     confirmBox(off?"Tắt mật khẩu chung?":"Bật lại mật khẩu chung?",off?"Sau khi tắt, Ban quản trị chỉ đăng nhập bằng tài khoản riêng. Người đang dùng mật khẩu chung vẫn làm việc được đến khi đăng xuất.":"Mật khẩu chung của Ban quản trị sẽ đăng nhập được trở lại.","Đồng ý",async()=>{try{await api("legacy_off",{off});state.meta.legacyOff=off;render()}catch(err){fail(err);return false}});
   }
   else if(act==="reload"){loadErr=false;render();try{await loadAll()}catch(e){loadErr=true}render()}
-  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;bankDocs=null;users=null;grps=null;rules=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
+  else if(act==="logout"){api("logout",{}).catch(()=>{}).then(()=>{me=null;fb=null;bankDocs=null;gateLog=null;gateInfo=null;users=null;grps=null;rules=null;audit=null;units=null;vehs=null;polls=null;ballots={};facs=null;books=null;loaded=0;state={txns:[],assets:[],maints:[],notices:[],vendors:[],vratings:[],comments:[],files:[],meta:{},settings:{name:"",openMaint:0,openOps:0,approvalLimit:0,notifyEmails:""}};render()})}
   else if(act==="del-fb"){confirmBox("Xóa góp ý?","Góp ý này sẽ bị xóa khỏi danh sách.","Xóa",async()=>{try{await api("feedback_del",{id:Number(id)});fb=fb.filter(x=>String(x.id)!==id);render()}catch(err){fail(err)}})}
   else if(act==="task-new")taskForm(null,{assetId:b.dataset.asset,kind:b.dataset.kind,due:b.dataset.due,title:b.dataset.asset?((b.dataset.kind==="Kiểm định"?"Kiểm định ":"Bảo trì ")+((assetById(b.dataset.asset)||{}).name||"")):""});
   else if(act==="task-edit")taskForm(state.tasks.find(t=>t.id===id));

@@ -59,6 +59,8 @@ try { $pdo->exec('ALTER TABLE polls ADD COLUMN impl_note TEXT'); } catch (Throwa
 $pdo->exec('CREATE TABLE IF NOT EXISTS facilities (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT, rules TEXT, open_from TEXT, open_to TEXT, auto INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS bookings (id TEXT PRIMARY KEY, facility TEXT NOT NULL, unit TEXT NOT NULL, date TEXT NOT NULL, start TEXT NOT NULL, end TEXT NOT NULL, status TEXT NOT NULL, note TEXT, created INTEGER NOT NULL, by_name TEXT)');
 $pdo->exec('CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)');
+$pdo->exec('CREATE TABLE IF NOT EXISTS gate_events (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, lane TEXT, dir TEXT NOT NULL, plate TEXT NOT NULL, result TEXT NOT NULL, vehicle_id TEXT, unit TEXT, vtype TEXT)');
+$pdo->exec('CREATE INDEX IF NOT EXISTS gate_ts ON gate_events (ts)');
 
 $a = (string)($_GET['a'] ?? '');
 $method = $_SERVER['REQUEST_METHOD'];
@@ -435,6 +437,29 @@ function maybeRemind(PDO $pdo): void {
     $body .= "Mở trang quản lý để xử lý.";
     sendMail($to, '[The Vista An Phú] Nhắc việc ' . date('d/m/Y'), $body);
 }
+
+
+/* ---------- cổng bãi xe: thiết bị nhận diện biển số dùng khóa riêng, không dùng tài khoản người ---------- */
+function plateKey(string $p): string { return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $p)); }
+function gateAuth(PDO $pdo): void {
+    $h = (string)metaGet($pdo, 'gate_key_hash');
+    $k = (string)($_SERVER['HTTP_X_GATE_KEY'] ?? ($_GET['key'] ?? ''));
+    if ($h === '' || $k === '' || !hash_equals($h, hash('sha256', $k))) { usleep(700000); out(401, ['error' => 'gate_key']); }
+    metaSet($pdo, 'gate_seen', (string)time());
+}
+/** Xe được phép vào: đã duyệt, có biển số thật (xe đạp không tính). */
+function gateVehicles(PDO $pdo): array {
+    $rows = $pdo->query("SELECT id, unit, type, plate FROM vehicles WHERE status = 'Đã duyệt' AND plate <> 'XE-DAP' AND type <> 'Xe đạp' ORDER BY plate")->fetchAll(PDO::FETCH_ASSOC);
+    $res = [];
+    foreach ($rows as $r) { $k = plateKey((string)$r['plate']); if ($k !== '') $res[] = ['id' => $r['id'], 'key' => $k, 'plate' => $r['plate'], 'type' => $r['type'], 'unit' => $r['unit']]; }
+    return $res;
+}
+function gateFind(PDO $pdo, string $plate): ?array {
+    $k = plateKey($plate); if ($k === '') return null;
+    foreach (gateVehicles($pdo) as $v) if ($v['key'] === $k) return $v;
+    return null;
+}
+function gateKeepDays(PDO $pdo): int { $d = (int)metaGet($pdo, 'gate_keep'); return $d >= 7 && $d <= 365 ? $d : 90; }
 
 /* ---------- đọc yêu cầu ---------- */
 $body = [];
@@ -970,6 +995,89 @@ switch ($a) {
         if ((int)$m->fetchColumn() > 0) out(409, ['error' => 'group_in_use']);
         $pdo->prepare('DELETE FROM ugroups WHERE id = ?')->execute([$id]);
         audit($pdo, 'xóa nhóm', 'ugroups', $id, $old['code'] . ' · ' . $old['name']);
+        out(200, ['ok' => true]);
+    }
+
+
+    case 'gate_list': {   // thiết bị cổng tải danh sách xe được phép vào (JSON hoặc CSV)
+        gateAuth($pdo);
+        $list = gateVehicles($pdo);
+        if (($_GET['format'] ?? '') === 'csv') {
+            header('Content-Type: text/csv; charset=utf-8');
+            echo "plate_key,plate,type,unit\r\n";
+            foreach ($list as $v) echo implode(',', [$v['key'], '"' . str_replace('"', '""', (string)$v['plate']) . '"', $v['type'], $v['unit']]) . "\r\n";
+            exit;
+        }
+        out(200, ['updated' => date('c'), 'count' => count($list), 'items' => array_map(fn($v) => ['key' => $v['key'], 'plate' => $v['plate'], 'type' => $v['type'], 'unit' => $v['unit']], $list)]);
+    }
+
+    case 'gate_check': {   // hỏi nhanh một biển số (thiết bị luôn nên giữ bản danh sách cục bộ để dùng khi mất mạng)
+        gateAuth($pdo);
+        $plate = (string)($_GET['plate'] ?? ($body['plate'] ?? ''));
+        $v = gateFind($pdo, $plate);
+        out(200, ['allow' => $v !== null, 'key' => plateKey($plate), 'type' => $v['type'] ?? null, 'unit' => $v['unit'] ?? null]);
+    }
+
+    case 'gate_log': {   // thiết bị đẩy nhật ký ra vào (tối đa 100 dòng mỗi lần)
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        gateAuth($pdo);
+        $in = array_slice((array)($body['events'] ?? []), 0, 100); $n = 0;
+        $ins = $pdo->prepare('INSERT INTO gate_events (ts, lane, dir, plate, result, vehicle_id, unit, vtype) VALUES (?,?,?,?,?,?,?,?)');
+        foreach ($in as $e) {
+            if (!is_array($e)) continue;
+            $k = plateKey((string)($e['plate'] ?? '')); if ($k === '') $k = '?';
+            $ts = $e['ts'] ?? time(); $ts = is_numeric($ts) ? (int)$ts : (int)strtotime((string)$ts);
+            if ($ts < 1500000000 || $ts > time() + 86400) $ts = time();
+            $dir = ($e['dir'] ?? 'in') === 'out' ? 'out' : 'in';
+            $res = in_array($e['result'] ?? '', ['allow', 'deny', 'manual'], true) ? $e['result'] : 'allow';
+            $v = $k !== '?' ? gateFind($pdo, $k) : null;
+            $ins->execute([$ts, mb_substr((string)($e['lane'] ?? ''), 0, 20), $dir, $k, $res, $v['id'] ?? null, $v['unit'] ?? null, $v['type'] ?? null]); $n++;
+        }
+        if (random_int(1, 20) === 1) $pdo->prepare('DELETE FROM gate_events WHERE ts < ?')->execute([time() - gateKeepDays($pdo) * 86400]);
+        out(200, ['ok' => true, 'saved' => $n]);
+    }
+
+    case 'gate_events': {   // Ban quản lý xem nhật ký ra vào
+        needCap($role, 'seeall');
+        $w = ['1=1']; $p = [];
+        $d = (string)($_GET['date'] ?? ''); if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) { $t0 = strtotime($d . ' 00:00:00'); $w[] = 'ts >= ? AND ts < ?'; $p[] = $t0; $p[] = $t0 + 86400; }
+        $q = plateKey((string)($_GET['plate'] ?? '')); if ($q !== '') { $w[] = 'plate LIKE ?'; $p[] = '%' . $q . '%'; }
+        $r = (string)($_GET['result'] ?? ''); if (in_array($r, ['allow', 'deny', 'manual'], true)) { $w[] = 'result = ?'; $p[] = $r; }
+        $s2 = $pdo->prepare('SELECT id, ts, lane, dir, plate, result, unit, vtype FROM gate_events WHERE ' . implode(' AND ', $w) . ' ORDER BY ts DESC, id DESC LIMIT 300');
+        $s2->execute($p);
+        out(200, ['items' => $s2->fetchAll(PDO::FETCH_ASSOC), 'keepDays' => gateKeepDays($pdo)]);
+    }
+
+    case 'gate_info': {
+        needCap($role, 'system');
+        $seen = (int)metaGet($pdo, 'gate_seen');
+        out(200, ['on' => (string)metaGet($pdo, 'gate_key_hash') !== '', 'seen' => $seen ?: null, 'keepDays' => gateKeepDays($pdo), 'vehicles' => count(gateVehicles($pdo))]);
+    }
+
+    case 'gate_key_new': {   // tạo hoặc đổi khóa; khóa chỉ hiện đúng một lần
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'system');
+        $k = bin2hex(random_bytes(24));
+        metaSet($pdo, 'gate_key_hash', hash('sha256', $k));
+        audit($pdo, 'tạo khóa cổng bãi xe', '', '', 'Khóa cũ (nếu có) hết hiệu lực.');
+        out(200, ['ok' => true, 'key' => $k]);
+    }
+
+    case 'gate_key_off': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'system');
+        metaSet($pdo, 'gate_key_hash', '');
+        audit($pdo, 'tắt khóa cổng bãi xe');
+        out(200, ['ok' => true]);
+    }
+
+    case 'gate_cfg': {
+        if ($method !== 'POST') out(405, ['error' => 'method']);
+        needCap($role, 'system');
+        $d = (int)($body['keepDays'] ?? 90);
+        if ($d < 7 || $d > 365) out(400, ['error' => 'bad_request']);
+        metaSet($pdo, 'gate_keep', (string)$d);
+        audit($pdo, 'đổi thời gian lưu nhật ký cổng', '', '', "$d ngày");
         out(200, ['ok' => true]);
     }
 
